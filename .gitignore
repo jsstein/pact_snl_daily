@@ -1,0 +1,23 @@
+# Machine-specific config (copy from pact_config.example.json)
+pact_config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+.venv/
+venv/
+
+# macOS
+.DS_Store
+__MACOSX/
