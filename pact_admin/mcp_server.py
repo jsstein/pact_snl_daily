@@ -176,6 +176,20 @@ def list_modules(active_only: bool = True) -> str:
     return df.to_string(index=False)
 
 
+# ---- AWS tools -------------------------------------------------------------
+
+@mcp.tool()
+def aws_sso_login() -> str:
+    """Authenticate with AWS SSO by opening a browser window.
+
+    Runs `aws sso login` using the sso_session name from pact_config.json.
+    Blocks until the user completes the browser-based login flow.
+    """
+    with _capture_stdout() as buf:
+        ingest.aws_sso_login(cfg)
+    return buf.getvalue()
+
+
 # ---- Ingestion tools -------------------------------------------------------
 
 @mcp.tool()

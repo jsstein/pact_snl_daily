@@ -4,6 +4,7 @@
     "censored_days_csv": "PACT_SNL_censored_days_SETUP.csv",
     "s3_bucket": "pvivdb-transfer",
     "aws_profile": "dev",
+    "sso_session": "my-sso",
     "pact_analysis_path": "~/bin/pact_analysis",
     "pact_plots_path": "~/bin/pact_plots",
     "ephemeris_path": "~/bin/pact_analysis",

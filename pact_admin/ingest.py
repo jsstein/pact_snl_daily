@@ -735,6 +735,43 @@ def update_all_month(cfg, year, month, upload_s3=True, verbose=True):
         print(f'\nAll {len(active)} module(s) completed successfully.')
 
 
+def aws_sso_login(cfg, verbose=True):
+    """Authenticate with AWS SSO by opening a browser window.
+
+    Runs `aws sso login --sso-session <session>` and blocks until the user
+    completes the browser-based login flow.  The session name is taken from
+    the ``sso_session`` key in pact_config.json (default: ``my-sso``).
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    verbose : bool
+    """
+    import subprocess
+
+    sso_session = cfg.get('sso_session', 'my-sso')
+    cmd = ['aws', 'sso', 'login', '--sso-session', sso_session]
+
+    if verbose:
+        print(f'Running: {" ".join(cmd)}')
+        print('A browser window will open — complete the login there.')
+
+    result = subprocess.run(cmd, text=True, capture_output=True)
+
+    if result.stdout:
+        print(result.stdout.rstrip())
+    if result.stderr:
+        print(result.stderr.rstrip())
+
+    if result.returncode == 0:
+        print('AWS SSO login successful.')
+    else:
+        raise RuntimeError(
+            f'AWS SSO login failed (exit code {result.returncode})'
+        )
+
+
 def generate_module_summary(cfg, output_path=None, active_only=False, verbose=True):
     """Generate a summary table for each module.
 

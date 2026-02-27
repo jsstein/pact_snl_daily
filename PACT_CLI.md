@@ -68,6 +68,16 @@ python -m pact_admin sync-metadata
 
 ---
 
+## AWS authentication
+
+### Log in to AWS SSO (opens a browser window)
+The session name is taken from `sso_session` in `pact_config.json` (default: `my-sso`).
+```
+python -m pact_admin aws-sso-login
+```
+
+---
+
 ## Data ingestion
 
 ### Update point-data and bar chart for one module/month (with S3 upload)

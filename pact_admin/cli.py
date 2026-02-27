@@ -141,6 +141,12 @@ def main():
     p.add_argument('--no-s3', action='store_true', dest='no_s3',
                    help='Skip uploading files to S3')
 
+    # ---- aws-sso-login -----------------------------------------------------
+    sub.add_parser(
+        'aws-sso-login',
+        help='Authenticate with AWS SSO (opens a browser window)',
+    )
+
     # ---- list-modules ------------------------------------------------------
     p = sub.add_parser('list-modules', help='List modules from the setup CSV')
     p.add_argument('--all', action='store_true', dest='show_all',
@@ -237,6 +243,9 @@ def main():
             month=args.month,
             upload_s3=not args.no_s3,
         )
+
+    elif args.command == 'aws-sso-login':
+        ingest.aws_sso_login(cfg)
 
     elif args.command == 'list-modules':
         df = registry.list_modules(cfg, active_only=not args.show_all)
