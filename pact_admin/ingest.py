@@ -206,6 +206,33 @@ def _merge_columns(dfmod, df_met, df_air, pad_cfg):
         ], axis=1)
 
 
+def _check_metadata_consistency(base_path):
+    """Scan Box Sync for modules that have CSV files but no metadata entry.
+
+    Returns a list of (module_id, csv_path) tuples for orphaned modules.
+    Raises nothing — callers decide how to handle the results.
+    """
+    import glob
+    import json as _json
+
+    orphans = []
+    for meta_path in sorted(Path(base_path).glob('P-*-XX/*/data/metadata/module-metadata.json')):
+        with open(meta_path) as f:
+            try:
+                metadata = _json.load(f)
+            except Exception:
+                continue
+        known_ids = {m['module_id'] for m in metadata}
+        point_data_dir = meta_path.parent.parent / 'point-data'
+        for csv in sorted(point_data_dir.glob('point-data_*.csv')):
+            parts = csv.stem.split('_')   # point-data_P-XXXX-XX_YYYY-MM
+            if len(parts) >= 2:
+                mod_id = parts[1]
+                if mod_id not in known_ids:
+                    orphans.append((mod_id, str(csv)))
+    return orphans
+
+
 def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
     """Re-run PACTPlots and save the daily-efficiency PNG. Returns the PNG path."""
     import matplotlib
@@ -231,6 +258,19 @@ def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
     spec.loader.exec_module(_pp)
 
     flat_file_path = str(get_base_path(cfg))
+
+    # Pre-flight: PACTAnalysis.__init__ will crash with a cryptic IndexError
+    # if any CSV file belongs to a module not in module-metadata.json.
+    orphans = _check_metadata_consistency(flat_file_path)
+    if orphans:
+        lines = '\n'.join(f'  {mid}  ({csv})' for mid, csv in orphans)
+        raise ValueError(
+            'The following modules have point-data CSV files but no entry in '
+            'module-metadata.json. Add them to the setup CSV and run '
+            '"python -m pact_admin sync-metadata", or remove the orphaned files:\n'
+            + lines
+        )
+
     pp = _pp.PACTPlots(flat_file_path)
 
     plots_dir = get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'daily_plots'
