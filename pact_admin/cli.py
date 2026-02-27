@@ -93,12 +93,14 @@ def main():
         'efficiency-plot',
         help='Plot daily efficiency vs. date for all (or filtered) modules',
     )
-    p.add_argument('--output', default='efficiency_plot.png', metavar='PATH',
-                   help='Output PNG file path (default: efficiency_plot.png)')
+    p.add_argument('--output', default=None, metavar='PATH',
+                   help='Output file path (default: efficiency_plot.png or .html with --plotly)')
     p.add_argument('--active-only', action='store_true', dest='active_only',
                    help='Only include modules listed as Active=Y in setup CSV')
     p.add_argument('--batch', default=None, metavar='P-XXXX',
                    help='Only include modules from this batch prefix')
+    p.add_argument('--plotly', action='store_true', dest='use_plotly',
+                   help='Generate an interactive HTML plot (hover to see module IDs)')
 
     # ---- update-batch ------------------------------------------------------
     p = sub.add_parser(
@@ -183,11 +185,13 @@ def main():
         )
 
     elif args.command == 'efficiency-plot':
+        default_output = 'efficiency_plot.html' if args.use_plotly else 'efficiency_plot.png'
         ingest.plot_all_efficiency(
             cfg,
-            output_path=args.output,
+            output_path=args.output or default_output,
             active_only=args.active_only,
             batch=args.batch,
+            use_plotly=args.use_plotly,
         )
 
     elif args.command == 'update-batch':

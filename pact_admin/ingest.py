@@ -464,7 +464,8 @@ def _load_pact_analysis(cfg):
     return _pa, pact_analysis_dir, ephemeris_dir
 
 
-def plot_all_efficiency(cfg, output_path, active_only=False, batch=None, verbose=True):
+def plot_all_efficiency(cfg, output_path, active_only=False, batch=None,
+                        use_plotly=False, verbose=True):
     """Generate a multi-line daily efficiency plot for all (or filtered) modules.
 
     Each module is drawn as its own line.  Days that fail quality flags are
@@ -475,12 +476,15 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None, verbose
     cfg : dict
         Loaded pact_config.json.
     output_path : str
-        File path for the saved PNG.
+        File path for the saved plot (PNG for matplotlib, HTML for plotly).
     active_only : bool
         If True, only plot modules listed as Active=Y in the setup CSV.
     batch : str or None
         If set, only plot modules whose PACT_id starts with this prefix
         (e.g. 'P-0042').
+    use_plotly : bool
+        If True, generate an interactive HTML plot using plotly instead of a
+        static PNG.  Hovering over a line shows the module PACT-ID.
     verbose : bool
     """
     import matplotlib
@@ -530,7 +534,6 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None, verbose
     if verbose:
         print(f'Plotting efficiency for {len(all_modules)} module(s)...')
 
-    fig, ax = plt.subplots(figsize=(14, 6))
     efficiency_series = {}
 
     for module in all_modules:
@@ -544,23 +547,58 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None, verbose
                     print(f'  {module}: no valid data, skipped')
                 continue
             efficiency_series[module] = eff_full
-            ax.plot(eff_plot.index, eff_plot.values, linewidth=0.8, color='black')
             if verbose:
                 print(f'  {module}: {len(eff_plot)} valid days')
         except Exception as exc:
             if verbose:
                 print(f'  {module}: skipped ({exc})')
 
-    ax.set_xlabel('Date')
-    ax.set_ylabel('Daily Efficiency (%)')
-    ax.set_title('PACT Daily Module Efficiency')
-    ax.grid(True, alpha=0.3)
+    if use_plotly:
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            raise ImportError(
+                'plotly is required for --plotly. Install it with: pip install plotly'
+            )
 
-    fig.tight_layout()
-    fig.savefig(output_path, bbox_inches='tight', dpi=150)
-    plt.close(fig)
-    if verbose:
-        print(f'Saved: {output_path}')
+        fig_pl = go.Figure()
+        for module, eff_full in efficiency_series.items():
+            eff_plot = eff_full.dropna()
+            fig_pl.add_trace(go.Scatter(
+                x=eff_plot.index,
+                y=eff_plot.values,
+                mode='lines',
+                name=module,
+                line=dict(width=1, color='black'),
+                hovertemplate='%{x|%Y-%m-%d}<br>Efficiency: %{y:.2f}%<br>Module: ' + module + '<extra></extra>',
+            ))
+        fig_pl.update_layout(
+            title='PACT Daily Module Efficiency',
+            xaxis_title='Date',
+            yaxis_title='Daily Efficiency (%)',
+            showlegend=False,
+            hovermode='closest',
+        )
+        fig_pl.write_html(output_path)
+        if verbose:
+            print(f'Saved: {output_path}')
+
+    else:
+        fig, ax = plt.subplots(figsize=(14, 6))
+        for module, eff_full in efficiency_series.items():
+            eff_plot = eff_full.dropna()
+            ax.plot(eff_plot.index, eff_plot.values, linewidth=0.8, color='black')
+
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Daily Efficiency (%)')
+        ax.set_title('PACT Daily Module Efficiency')
+        ax.grid(True, alpha=0.3)
+
+        fig.tight_layout()
+        fig.savefig(output_path, bbox_inches='tight', dpi=150)
+        plt.close(fig)
+        if verbose:
+            print(f'Saved: {output_path}')
 
     # Save CSV table: one row per date, one column per module
     if efficiency_series:
