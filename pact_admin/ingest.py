@@ -212,16 +212,20 @@ def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    # Load pact_plots.py directly by file path to avoid the pact_plots/
-    # directory being resolved as a namespace package instead of the module.
-    repo_root = Path(__file__).parent.parent
+    # Load pact_plots.py directly by file path (from config) to avoid the
+    # pact_plots/ directory being resolved as a namespace package.
+    pact_analysis_dir = cfg.get('pact_analysis_path')
+    pact_plots_dir = cfg.get('pact_plots_path')
+    if not pact_analysis_dir or not pact_plots_dir:
+        raise KeyError(
+            'pact_analysis_path and pact_plots_path must be set in pact_config.json'
+        )
 
     # pact_analysis must be on sys.path so pact_plots.py can import it.
-    pact_analysis_dir = str(repo_root / 'pact_analysis')
     if pact_analysis_dir not in sys.path:
         sys.path.insert(0, pact_analysis_dir)
 
-    pact_plots_file = repo_root / 'pact_plots' / 'pact_plots.py'
+    pact_plots_file = Path(pact_plots_dir) / 'pact_plots.py'
     spec = importlib.util.spec_from_file_location('pact_plots', pact_plots_file)
     _pp = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(_pp)

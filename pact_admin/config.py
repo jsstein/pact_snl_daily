@@ -15,7 +15,7 @@ def load_config(path=None):
         cfg = json.load(f)
 
     # Expand ~ in path-like fields
-    for key in ('base_path', 'ssl_cert'):
+    for key in ('base_path', 'ssl_cert', 'pact_analysis_path', 'pact_plots_path'):
         if key in cfg and cfg[key]:
             cfg[key] = str(Path(cfg[key]).expanduser())
 

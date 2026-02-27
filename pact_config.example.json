@@ -4,6 +4,8 @@
     "censored_days_csv": "PACT_SNL_censored_days_SETUP.csv",
     "s3_bucket": "pvivdb-transfer",
     "aws_profile": "dev",
+    "pact_analysis_path": "~/bin/pact_analysis",
+    "pact_plots_path": "~/bin/pact_plots",
     "db_server": "DB03SNLNT\\PR",
     "db_name": "PVGrid",
     "db_timezone": "MST",
