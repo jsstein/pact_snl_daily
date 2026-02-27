@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from . import config, registry
+from . import config, ingest, registry
 
 
 def _load_config_or_exit():
@@ -73,6 +73,21 @@ def main():
     p.add_argument('--end', required=True, metavar='YYYY-MM-DD')
     p.add_argument('--comment', default='', metavar='TEXT')
 
+    # ---- update-module -----------------------------------------------------
+    p = sub.add_parser(
+        'update-module',
+        help='Fetch one month of DB data for a module, write point-data CSV '
+             'and regenerate the bar chart',
+    )
+    p.add_argument('--pact-id', required=True, metavar='P-XXXX-XX',
+                   help='PACT module ID (e.g. P-0042-04)')
+    p.add_argument('--year', required=True, type=int, metavar='YYYY',
+                   help='Four-digit year')
+    p.add_argument('--month', required=True, type=int, metavar='M',
+                   help='Month number (1–12)')
+    p.add_argument('--no-s3', action='store_true', dest='no_s3',
+                   help='Skip uploading files to S3 (useful off-network)')
+
     # ---- list-modules ------------------------------------------------------
     p = sub.add_parser('list-modules', help='List modules from the setup CSV')
     p.add_argument('--all', action='store_true', dest='show_all',
@@ -118,6 +133,15 @@ def main():
             start=args.start,
             end=args.end,
             comment=args.comment,
+        )
+
+    elif args.command == 'update-module':
+        ingest.update_module_month(
+            cfg,
+            pact_id=args.pact_id,
+            year=args.year,
+            month=args.month,
+            upload_s3=not args.no_s3,
         )
 
     elif args.command == 'list-modules':
