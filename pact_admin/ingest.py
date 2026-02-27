@@ -13,7 +13,6 @@ and one calendar month:
 """
 
 import calendar
-import importlib
 import os
 import sys
 from datetime import datetime
@@ -212,15 +211,22 @@ def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    # Ensure pact_analysis and pact_plots are importable from the repo root
+    # Ensure pact_analysis and pact_plots .py files are importable.
+    # Insert their directories at the front of sys.path so Python finds
+    # pact_plots.py (inside pact_plots/) rather than the pact_plots/
+    # directory itself as a namespace package.
     repo_root = Path(__file__).parent.parent
     for pkg in ('pact_analysis', 'pact_plots'):
         p = str(repo_root / pkg)
         if p not in sys.path:
             sys.path.insert(0, p)
 
+    # Evict any stale cached module so our sys.path insertion takes effect.
+    for mod_name in list(sys.modules):
+        if mod_name == 'pact_plots' or mod_name.startswith('pact_plots.'):
+            del sys.modules[mod_name]
+
     import pact_plots as _pp
-    importlib.reload(_pp)
 
     flat_file_path = str(get_base_path(cfg))
     pp = _pp.PACTPlots(flat_file_path)
