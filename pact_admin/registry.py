@@ -138,6 +138,47 @@ def retire_module(cfg, pact_id, end_date):
     print(f'{pact_id}: Retired (End_date={end_str})')
 
 
+def delete_module(cfg, pact_id):
+    """Permanently remove a module from the setup CSV and module-metadata.json.
+
+    Use this to correct a module added by mistake or with wrong information.
+    Data files (point-data CSVs, PNGs) in Box Sync are NOT deleted.
+
+    Parameters
+    ----------
+    pact_id : str, e.g. 'P-0150-01'
+    """
+    # Read CSV first so we can get the site key before removing the row
+    df = read_modules(cfg)
+    mask = df['PACT_id'] == pact_id
+    if not mask.any():
+        raise ValueError(f'{pact_id} not found in setup CSV')
+
+    site_key = df.loc[mask, 'Site'].iloc[0] if 'Site' in df.columns else 'SNL'
+    if not site_key:
+        site_key = 'SNL'
+
+    # Remove from setup CSV
+    write_modules(df[~mask].reset_index(drop=True), cfg)
+    print(f'{pact_id}: Removed from setup CSV')
+
+    # Remove from module-metadata.json
+    batch = pact_id[:6]
+    meta_path = get_module_metadata_path(cfg, batch, site_key)
+    if meta_path.exists():
+        with open(meta_path) as f:
+            data = json.load(f)
+        new_data = [m for m in data if m['module_id'] != pact_id]
+        if len(new_data) < len(data):
+            with open(meta_path, 'w') as f:
+                json.dump(new_data, f, indent=4)
+            print(f'{pact_id}: Removed from {meta_path}')
+        else:
+            print(f'{pact_id}: Not found in {meta_path}')
+    else:
+        print(f'{pact_id}: module-metadata.json not found at {meta_path}')
+
+
 def list_modules(cfg, active_only=True):
     """Return a DataFrame of modules, optionally filtered to active only."""
     df = read_modules(cfg)

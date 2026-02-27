@@ -47,6 +47,14 @@ def main():
     p.add_argument('--end-date', required=True, metavar='YYYY-MM-DD',
                    help='Date the module was removed from outdoor deployment')
 
+    # ---- delete-module -----------------------------------------------------
+    p = sub.add_parser(
+        'delete-module',
+        help='Permanently delete a module from the setup CSV and metadata '
+             '(use for entries added by mistake)',
+    )
+    p.add_argument('--pact-id', required=True, metavar='P-XXXX-XX')
+
     # ---- add-censor --------------------------------------------------------
     p = sub.add_parser('add-censor',
                        help='Add a censoring condition to module-metadata.json')
@@ -162,6 +170,9 @@ def main():
 
     elif args.command == 'retire-module':
         registry.retire_module(cfg, pact_id=args.pact_id, end_date=args.end_date)
+
+    elif args.command == 'delete-module':
+        registry.delete_module(cfg, pact_id=args.pact_id)
 
     elif args.command == 'add-censor':
         registry.add_censor(

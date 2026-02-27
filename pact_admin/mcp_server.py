@@ -82,6 +82,21 @@ def add_module(
 
 
 @mcp.tool()
+def delete_module(pact_id: str) -> str:
+    """Permanently delete a module from the setup CSV and module-metadata.json.
+
+    Use this only for modules added by mistake or with incorrect information.
+    Data files (point-data CSVs, PNGs) in Box Sync are NOT deleted.
+
+    Args:
+        pact_id: PACT module ID to delete, e.g. P-0150-01
+    """
+    with _capture_stdout() as buf:
+        registry.delete_module(cfg, pact_id=pact_id)
+    return buf.getvalue()
+
+
+@mcp.tool()
 def retire_module(pact_id: str, end_date: str) -> str:
     """Mark a module as inactive (Active=N) in the setup CSV.
 

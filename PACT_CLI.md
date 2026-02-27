@@ -19,6 +19,12 @@ python -m pact_admin add-module \
 python -m pact_admin retire-module --pact-id P-0150-01 --end-date 2026-12-01
 ```
 
+### Delete a module (entered by mistake or with wrong information)
+Removes the module from the setup CSV and metadata. Data files in Box Sync are NOT deleted.
+```
+python -m pact_admin delete-module --pact-id P-0150-01
+```
+
 ### List active modules
 ```
 python -m pact_admin list-modules
