@@ -128,7 +128,7 @@ def _make_s3_bucket(cfg):
     return s3.Bucket(cfg['s3_bucket'])
 
 
-def _query_mppt(engine, pact_id, start_dt, end_dt):
+def _query_mppt(engine, pact_id, start_dt, end_dt, tz):
     """Query MPPT data for a single module and return a cleaned DataFrame."""
     sql = (
         f"SELECT * FROM dbo.PACT_MPPTData "
@@ -137,7 +137,7 @@ def _query_mppt(engine, pact_id, start_dt, end_dt):
         f"ORDER BY TmStamp ASC"
     )
     df = pd.read_sql(sql, engine, index_col='TmStamp')
-    df.index = df.index.tz_localize('MST')
+    df.index = df.index.tz_localize(tz)
     df.drop(columns=['PACTMPPTDataID', 'Power', 'Filename'],
             inplace=True, errors='ignore')
     df = df.rename(columns={
@@ -148,7 +148,7 @@ def _query_mppt(engine, pact_id, start_dt, end_dt):
     return df.rename_axis('date_time')
 
 
-def _query_met(engine, pad_cfg, start_dt, end_dt):
+def _query_met(engine, pad_cfg, start_dt, end_dt, tz):
     """Query the test-pad meteorological table and return a cleaned DataFrame."""
     sql = (
         f"SELECT {pad_cfg['select']} FROM {pad_cfg['table']} "
@@ -157,11 +157,11 @@ def _query_met(engine, pad_cfg, start_dt, end_dt):
     )
     df = pd.read_sql(sql, engine, index_col='TmStamp')
     df = df.rename(columns=pad_cfg['rename']).rename_axis('date_time')
-    df.index = df.index.tz_localize('MST')
+    df.index = df.index.tz_localize(tz)
     return df
 
 
-def _query_air_temp(engine, start_dt, end_dt):
+def _query_air_temp(engine, start_dt, end_dt, tz):
     """Query ambient air temperature from dbo.PACT_MET_PACT_MET_30s."""
     sql = (
         f"SELECT TmStamp, AmbientTemp_C_Avg FROM dbo.PACT_MET_PACT_MET_30s "
@@ -170,7 +170,7 @@ def _query_air_temp(engine, start_dt, end_dt):
     )
     df = pd.read_sql(sql, engine, index_col='TmStamp')
     df = df.rename(columns={'AmbientTemp_C_Avg': 'temperature_air'}).rename_axis('date_time')
-    df.index = df.index.tz_localize('MST')
+    df.index = df.index.tz_localize(tz)
     return df
 
 
@@ -311,7 +311,8 @@ def update_module_month(cfg, pact_id, year, month, upload_s3=True, verbose=True)
     if rows.empty:
         raise ValueError(f'{pact_id} not found in setup CSV')
     module_row = rows.iloc[0]
-    deployment_start = pd.Timestamp(module_row['Start_date'])
+    tz = cfg.get('db_timezone', 'MST')
+    deployment_start = pd.Timestamp(module_row['Start_date']).tz_localize(tz)
     site_key = module_row.get('Site', 'SNL') or 'SNL'
     outdoor_dir = cfg['sites'][site_key]['outdoor_directory']
     batch = pact_id[:6]
@@ -322,7 +323,7 @@ def update_module_month(cfg, pact_id, year, month, upload_s3=True, verbose=True)
     # --- Step 1: MPPT data ---
     if verbose:
         print('  Querying MPPT data...')
-    dfmod = _query_mppt(engine, pact_id, start_dt, end_dt)
+    dfmod = _query_mppt(engine, pact_id, start_dt, end_dt, tz)
 
     if dfmod.empty:
         print(f'  {pact_id}: No MPPT data found for {yearmonth}. Nothing to do.')
@@ -343,12 +344,12 @@ def update_module_month(cfg, pact_id, year, month, upload_s3=True, verbose=True)
     # --- Step 2: meteorological data ---
     if verbose:
         print(f'  Querying met from {pad_cfg["table"]}...')
-    df_met = _query_met(engine, pad_cfg, start_dt, end_dt)
+    df_met = _query_met(engine, pad_cfg, start_dt, end_dt, tz)
 
     # --- Step 3: air temperature ---
     if verbose:
         print('  Querying air temperature...')
-    df_air = _query_air_temp(engine, start_dt, end_dt)
+    df_air = _query_air_temp(engine, start_dt, end_dt, tz)
 
     # --- Step 4: merge ---
     df_all = _merge_columns(dfmod, df_met, df_air, pad_cfg)

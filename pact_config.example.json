@@ -6,6 +6,7 @@
     "aws_profile": "dev",
     "db_server": "DB03SNLNT\\PR",
     "db_name": "PVGrid",
+    "db_timezone": "MST",
     "proxy": "http://proxy.sandia.gov:80",
     "ssl_cert": "~/Documents/SNL_Root_CA.crt",
     "sites": {
