@@ -116,13 +116,15 @@ def _make_s3_bucket(cfg):
 
     proxy = cfg.get('proxy')
     if proxy:
-        os.environ.setdefault('HTTP_PROXY', proxy)
-        os.environ.setdefault('HTTPS_PROXY', proxy)
+        os.environ['HTTP_PROXY'] = proxy
+        os.environ['HTTPS_PROXY'] = proxy
+        os.environ['http_proxy'] = proxy
+        os.environ['https_proxy'] = proxy
 
     ssl_cert = cfg.get('ssl_cert')
     if ssl_cert:
-        os.environ.setdefault('REQUESTS_CA_BUNDLE', ssl_cert)
-        os.environ.setdefault('AWS_CA_BUNDLE', ssl_cert)
+        os.environ['REQUESTS_CA_BUNDLE'] = ssl_cert
+        os.environ['AWS_CA_BUNDLE'] = ssl_cert
 
     s3 = boto3.resource('s3')
     return s3.Bucket(cfg['s3_bucket'])
