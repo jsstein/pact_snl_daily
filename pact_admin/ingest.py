@@ -465,7 +465,7 @@ def _load_pact_analysis(cfg):
 
 
 def plot_all_efficiency(cfg, output_path, active_only=False, batch=None,
-                        use_plotly=False, verbose=True):
+                        use_plotly=False, pre_t80=False, verbose=True):
     """Generate a multi-line daily efficiency plot for all (or filtered) modules.
 
     Each module is drawn as its own line.  Days that fail quality flags are
@@ -485,6 +485,10 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None,
     use_plotly : bool
         If True, generate an interactive HTML plot using plotly instead of a
         static PNG.  Hovering over a line shows the module PACT-ID.
+    pre_t80 : bool
+        If True, truncate each module's data at its T80 date (the first day
+        efficiency dropped below 80% of peak for 3 consecutive days).
+        Modules that have not reached T80 are plotted in full.
     verbose : bool
     """
     import matplotlib
@@ -535,12 +539,23 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None,
         print(f'Plotting efficiency for {len(all_modules)} module(s)...')
 
     efficiency_series = {}
+    t80_dates = {}          # always collected; written to sidecar JSON
 
     for module in all_modules:
         try:
             dp = pa.daily_performance(module)
             # Keep full series (including NaN) for the CSV; drop NaN for the plot
             eff_full = dp['efficiency'] * 100        # fraction → %
+
+            # Collect T80 date (None if not yet reached)
+            summary = pa.summary_info(module)
+            t80_date = summary.get('t80_date')
+            t80_dates[module] = pd.Timestamp(t80_date).date().isoformat() if t80_date is not None else None
+
+            # Optionally truncate to pre-T80 data
+            if pre_t80 and t80_date is not None:
+                eff_full = eff_full.loc[:pd.Timestamp(t80_date)]
+
             eff_plot = eff_full.dropna()
             if eff_plot.empty:
                 if verbose:
@@ -548,10 +563,22 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None,
                 continue
             efficiency_series[module] = eff_full
             if verbose:
-                print(f'  {module}: {len(eff_plot)} valid days')
+                t80_str = t80_dates[module] or 'not reached'
+                print(f'  {module}: {len(eff_plot)} valid days  (T80: {t80_str})')
         except Exception as exc:
             if verbose:
                 print(f'  {module}: skipped ({exc})')
+
+    # Always save sidecar T80 JSON so standalone scripts can use it
+    if t80_dates:
+        import json
+        t80_json_path = Path(output_path).with_name(
+            Path(output_path).stem + '_t80.json'
+        )
+        with open(t80_json_path, 'w') as _f:
+            json.dump(t80_dates, _f, indent=2)
+        if verbose:
+            print(f'Saved: {t80_json_path}')
 
     if use_plotly:
         try:

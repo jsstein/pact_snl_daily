@@ -101,6 +101,8 @@ def main():
                    help='Only include modules from this batch prefix')
     p.add_argument('--plotly', action='store_true', dest='use_plotly',
                    help='Generate an interactive HTML plot (hover to see module IDs)')
+    p.add_argument('--pre-t80', action='store_true', dest='pre_t80',
+                   help='Only plot data up to each module\'s T80 date')
 
     # ---- update-batch ------------------------------------------------------
     p = sub.add_parser(
@@ -192,6 +194,7 @@ def main():
             active_only=args.active_only,
             batch=args.batch,
             use_plotly=args.use_plotly,
+            pre_t80=args.pre_t80,
         )
 
     elif args.command == 'update-batch':
