@@ -39,15 +39,28 @@ def _fetch_tools():
 
 
 def _call_tool(name, arguments):
-    """Call a tool on the MCP server and return the result as a string."""
+    """Call a tool on the MCP server and return the result as a string.
+
+    Log notifications sent by the server (ctx.info / ctx.warning) are printed
+    to stdout immediately as they arrive, giving real-time progress for
+    long-running tools like update_all and update_batch.
+    """
+    async def _on_log(params) -> None:
+        # params.data is the message; params.level is debug/info/warning/error
+        level = str(getattr(params, 'level', 'info')).lower()
+        prefix = '  [warn] ' if 'warn' in level else '  '
+        print(f"{prefix}{params.data}", flush=True)
+
     async def _inner():
         async with streamablehttp_client(MCP_URL) as (read, write, _):
-            async with ClientSession(read, write) as session:
+            async with ClientSession(
+                read, write,
+                logging_callback=_on_log,
+            ) as session:
                 await session.initialize()
                 result = await session.call_tool(name, arguments)
                 if not result.content:
                     return "(no output)"
-                # Check for tool-level errors
                 if getattr(result, "isError", False):
                     return f"Error: {result.content[0].text}"
                 return result.content[0].text

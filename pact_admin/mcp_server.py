@@ -11,7 +11,7 @@ import contextlib
 import io
 import sys
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
 
 from . import config, ingest, registry
 
@@ -211,7 +211,7 @@ def update_module(pact_id: str, year: int, month: int, upload_s3: bool = True) -
 
 
 @mcp.tool()
-def update_batch(batch: str, year: int, month: int, upload_s3: bool = True) -> str:
+async def update_batch(ctx: Context, batch: str, year: int, month: int, upload_s3: bool = True) -> str:
     """Fetch one month of DB data for all active modules in a batch.
 
     Args:
@@ -220,15 +220,39 @@ def update_batch(batch: str, year: int, month: int, upload_s3: bool = True) -> s
         month: Month number (1-12)
         upload_s3: Whether to upload files to S3 (default True)
     """
-    with _capture_stdout() as buf:
-        ingest.update_batch_month(
-            cfg, batch=batch, year=year, month=month, upload_s3=upload_s3
-        )
-    return buf.getvalue()
+    batch_prefix = batch[:6]
+    modules_df = registry.read_modules(cfg)
+    active = modules_df[
+        (modules_df['Active'] == 'Y') &
+        (modules_df['PACT_id'].str.startswith(batch_prefix))
+    ]
+
+    if active.empty:
+        return f'No active modules found for batch {batch_prefix}.'
+
+    total = len(active)
+    results = []
+    await ctx.info(f'Updating {total} module(s) in {batch_prefix} for {year}-{month:02d}')
+
+    for i, (_, row) in enumerate(active.iterrows()):
+        pact_id = row['PACT_id']
+        await ctx.info(f'[{i+1}/{total}] {pact_id} — starting...')
+        with _capture_stdout() as buf:
+            try:
+                ingest.update_module_month(cfg, pact_id=pact_id, year=year,
+                                           month=month, upload_s3=upload_s3)
+                results.append(f'✓ {pact_id}')
+            except Exception as exc:
+                results.append(f'✗ {pact_id}: {exc}')
+        out = buf.getvalue().strip()
+        if out:
+            await ctx.info(out)
+
+    return '\n'.join(results)
 
 
 @mcp.tool()
-def update_all(year: int, month: int, upload_s3: bool = True) -> str:
+async def update_all(ctx: Context, year: int, month: int, upload_s3: bool = True) -> str:
     """Fetch one month of DB data for all active modules.
 
     Args:
@@ -236,9 +260,31 @@ def update_all(year: int, month: int, upload_s3: bool = True) -> str:
         month: Month number (1-12)
         upload_s3: Whether to upload files to S3 (default True)
     """
-    with _capture_stdout() as buf:
-        ingest.update_all_month(cfg, year=year, month=month, upload_s3=upload_s3)
-    return buf.getvalue()
+    modules_df = registry.read_modules(cfg)
+    active = modules_df[modules_df['Active'] == 'Y']
+
+    if active.empty:
+        return 'No active modules found.'
+
+    total = len(active)
+    results = []
+    await ctx.info(f'Updating {total} active module(s) for {year}-{month:02d}')
+
+    for i, (_, row) in enumerate(active.iterrows()):
+        pact_id = row['PACT_id']
+        await ctx.info(f'[{i+1}/{total}] {pact_id} — starting...')
+        with _capture_stdout() as buf:
+            try:
+                ingest.update_module_month(cfg, pact_id=pact_id, year=year,
+                                           month=month, upload_s3=upload_s3)
+                results.append(f'✓ {pact_id}')
+            except Exception as exc:
+                results.append(f'✗ {pact_id}: {exc}')
+        out = buf.getvalue().strip()
+        if out:
+            await ctx.info(out)
+
+    return '\n'.join(results)
 
 
 @mcp.tool()
