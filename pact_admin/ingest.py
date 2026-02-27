@@ -548,13 +548,18 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None,
             eff_full = dp['efficiency'] * 100        # fraction → %
 
             # Collect T80 date (None if not yet reached)
+            # str(t80_date) works for both datetime.date and datetime.datetime
             summary = pa.summary_info(module)
             t80_date = summary.get('t80_date')
-            t80_dates[module] = pd.Timestamp(t80_date).date().isoformat() if t80_date is not None else None
+            t80_ts = pd.Timestamp(str(t80_date)) if t80_date is not None else None
+            t80_dates[module] = t80_ts.date().isoformat() if t80_ts is not None else None
 
             # Optionally truncate to pre-T80 data
-            if pre_t80 and t80_date is not None:
-                eff_full = eff_full.loc[:pd.Timestamp(t80_date)]
+            if pre_t80 and t80_ts is not None:
+                # Match tz-awareness of the series index
+                if eff_full.index.tz is not None and t80_ts.tz is None:
+                    t80_ts = t80_ts.tz_localize(eff_full.index.tz)
+                eff_full = eff_full.loc[:t80_ts]
 
             eff_plot = eff_full.dropna()
             if eff_plot.empty:
