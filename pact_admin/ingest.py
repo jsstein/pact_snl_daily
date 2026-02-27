@@ -239,19 +239,11 @@ def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    # Load pact_plots.py directly by file path (from config) to avoid the
-    # pact_plots/ directory being resolved as a namespace package.
-    pact_analysis_dir = cfg.get('pact_analysis_path')
-    pact_plots_dir = cfg.get('pact_plots_path')
-    ephemeris_dir = cfg.get('ephemeris_path', pact_analysis_dir)
-    if not pact_analysis_dir or not pact_plots_dir:
-        raise KeyError(
-            'pact_analysis_path and pact_plots_path must be set in pact_config.json'
-        )
+    _pa, pact_analysis_dir, ephemeris_dir = _load_pact_analysis(cfg)
 
-    # pact_analysis must be on sys.path so pact_plots.py can import it.
-    if pact_analysis_dir not in sys.path:
-        sys.path.insert(0, pact_analysis_dir)
+    pact_plots_dir = cfg.get('pact_plots_path')
+    if not pact_plots_dir:
+        raise KeyError('pact_plots_path must be set in pact_config.json')
 
     pact_plots_file = Path(pact_plots_dir) / 'pact_plots.py'
     spec = importlib.util.spec_from_file_location('pact_plots', pact_plots_file)
@@ -272,9 +264,6 @@ def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
             + lines
         )
 
-    # Redirect Skyfield's loader to ephemeris_dir so it finds de421.bsp
-    # without attempting a download. Use skyfield.iokit.Loader directly
-    # (the concrete class) with an absolute path.
     from skyfield.iokit import Loader as _SkyLoader
     import skyfield.api as _skyfield_api
     _original_loader = _skyfield_api.load
@@ -445,6 +434,132 @@ def update_module_month(cfg, pact_id, year, month, upload_s3=True, verbose=True)
 
     if verbose:
         print(f'[{pact_id}] Done.')
+
+
+def _load_pact_analysis(cfg):
+    """Load pact_analysis.py via importlib and return the module object.
+
+    Applies the Skyfield loader redirect so de421.bsp is found locally.
+    """
+    pact_analysis_dir = cfg.get('pact_analysis_path')
+    ephemeris_dir = cfg.get('ephemeris_path', pact_analysis_dir)
+    if not pact_analysis_dir:
+        raise KeyError('pact_analysis_path must be set in pact_config.json')
+
+    if pact_analysis_dir not in sys.path:
+        sys.path.insert(0, pact_analysis_dir)
+
+    from skyfield.iokit import Loader as _SkyLoader
+    import skyfield.api as _skyfield_api
+    _original_loader = _skyfield_api.load
+    _skyfield_api.load = _SkyLoader(ephemeris_dir)
+    try:
+        pa_file = Path(pact_analysis_dir) / 'pact_analysis.py'
+        spec = importlib.util.spec_from_file_location('pact_analysis', pa_file)
+        _pa = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_pa)
+    finally:
+        _skyfield_api.load = _original_loader
+
+    return _pa, pact_analysis_dir, ephemeris_dir
+
+
+def plot_all_efficiency(cfg, output_path, active_only=False, batch=None, verbose=True):
+    """Generate a multi-line daily efficiency plot for all (or filtered) modules.
+
+    Each module is drawn as its own line.  Days that fail quality flags are
+    omitted (they appear as gaps in the line).
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    output_path : str
+        File path for the saved PNG.
+    active_only : bool
+        If True, only plot modules listed as Active=Y in the setup CSV.
+    batch : str or None
+        If set, only plot modules whose PACT_id starts with this prefix
+        (e.g. 'P-0042').
+    verbose : bool
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    flat_file_path = str(get_base_path(cfg))
+
+    # Pre-flight metadata consistency check
+    orphans = _check_metadata_consistency(flat_file_path)
+    if orphans:
+        lines = '\n'.join(f'  {mid}  ({csv})' for mid, csv in orphans)
+        raise ValueError(
+            'The following modules have point-data CSV files but no entry in '
+            'module-metadata.json. Add them to the setup CSV and run '
+            '"python -m pact_admin sync-metadata", or remove the orphaned files:\n'
+            + lines
+        )
+
+    _pa, pact_analysis_dir, ephemeris_dir = _load_pact_analysis(cfg)
+
+    from skyfield.iokit import Loader as _SkyLoader
+    import skyfield.api as _skyfield_api
+    _original_loader = _skyfield_api.load
+    _skyfield_api.load = _SkyLoader(ephemeris_dir)
+    try:
+        pa = _pa.PACTAnalysis(flat_file_path)
+    finally:
+        _skyfield_api.load = _original_loader
+
+    # Determine which modules to include
+    all_modules = sorted(pa.modules_available)
+
+    if active_only or batch:
+        modules_df = registry.read_modules(cfg)
+        active_ids = set(modules_df[modules_df['Active'] == 'Y']['PACT_id'])
+        if active_only:
+            all_modules = [m for m in all_modules if m in active_ids]
+        if batch:
+            batch_prefix = batch[:6]
+            all_modules = [m for m in all_modules if m.startswith(batch_prefix)]
+
+    if not all_modules:
+        print('No modules found matching the specified filters.')
+        return
+
+    if verbose:
+        print(f'Plotting efficiency for {len(all_modules)} module(s)...')
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    for module in all_modules:
+        try:
+            dp = pa.daily_performance(module)
+            eff = dp['efficiency'].dropna() * 100  # convert fraction → %
+            if eff.empty:
+                if verbose:
+                    print(f'  {module}: no valid data, skipped')
+                continue
+            ax.plot(eff.index, eff.values, linewidth=0.8, label=module)
+            if verbose:
+                print(f'  {module}: {len(eff)} valid days')
+        except Exception as exc:
+            if verbose:
+                print(f'  {module}: skipped ({exc})')
+
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Daily Efficiency (%)')
+    ax.set_title('PACT Daily Module Efficiency')
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=7, bbox_to_anchor=(1.01, 1), loc='upper left',
+              borderaxespad=0)
+
+    fig.tight_layout()
+    fig.savefig(output_path, bbox_inches='tight', dpi=150)
+    plt.close(fig)
+
+    if verbose:
+        print(f'Saved: {output_path}')
 
 
 def update_batch_month(cfg, batch, year, month, upload_s3=True, verbose=True):

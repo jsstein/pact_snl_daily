@@ -88,6 +88,18 @@ def main():
     p.add_argument('--no-s3', action='store_true', dest='no_s3',
                    help='Skip uploading files to S3 (useful off-network)')
 
+    # ---- efficiency-plot ---------------------------------------------------
+    p = sub.add_parser(
+        'efficiency-plot',
+        help='Plot daily efficiency vs. date for all (or filtered) modules',
+    )
+    p.add_argument('--output', default='efficiency_plot.png', metavar='PATH',
+                   help='Output PNG file path (default: efficiency_plot.png)')
+    p.add_argument('--active-only', action='store_true', dest='active_only',
+                   help='Only include modules listed as Active=Y in setup CSV')
+    p.add_argument('--batch', default=None, metavar='P-XXXX',
+                   help='Only include modules from this batch prefix')
+
     # ---- update-batch ------------------------------------------------------
     p = sub.add_parser(
         'update-batch',
@@ -168,6 +180,14 @@ def main():
             year=args.year,
             month=args.month,
             upload_s3=not args.no_s3,
+        )
+
+    elif args.command == 'efficiency-plot':
+        ingest.plot_all_efficiency(
+            cfg,
+            output_path=args.output,
+            active_only=args.active_only,
+            batch=args.batch,
         )
 
     elif args.command == 'update-batch':
