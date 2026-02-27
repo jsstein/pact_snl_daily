@@ -12,6 +12,7 @@
     "db_name": "PVGrid",
     "db_timezone": "MST",
     "proxy": "http://proxy.sandia.gov:80",
+    "no_proxy_s3": false,
     "ssl_cert": "~/Documents/SNL_Root_CA.crt",
     "sites": {
         "SNL": {

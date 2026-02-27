@@ -100,33 +100,50 @@ def _make_engine(cfg):
     return create_engine(conn_str)
 
 
-def _make_s3_bucket(cfg):
+def _make_s3_bucket(cfg, verbose=False):
     """Return a boto3 Bucket object, applying proxy/SSL from config.
 
     Returns None if boto3 is not installed.
+
+    Set ``no_proxy_s3: true`` in pact_config.json to skip proxy env vars
+    (useful if S3 is directly reachable without going through the proxy).
     """
     try:
         import boto3
+        import boto3.session
     except ImportError:
         return None
 
     profile = cfg.get('aws_profile', 'default')
+    no_proxy_s3 = cfg.get('no_proxy_s3', False)
+
     os.environ['AWS_PROFILE'] = profile
     os.environ['AWS_DEFAULT_PROFILE'] = profile
 
     proxy = cfg.get('proxy')
-    if proxy:
+    if proxy and not no_proxy_s3:
         os.environ['HTTP_PROXY'] = proxy
         os.environ['HTTPS_PROXY'] = proxy
         os.environ['http_proxy'] = proxy
         os.environ['https_proxy'] = proxy
+        if verbose:
+            print(f'  S3: using proxy {proxy}')
+    else:
+        # Clear any proxy env vars so boto3 doesn't pick up stale shell values
+        for var in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
+            os.environ.pop(var, None)
+        if verbose:
+            print('  S3: connecting directly (no proxy)')
 
     ssl_cert = cfg.get('ssl_cert')
     if ssl_cert:
         os.environ['REQUESTS_CA_BUNDLE'] = ssl_cert
         os.environ['AWS_CA_BUNDLE'] = ssl_cert
+        if verbose:
+            print(f'  S3: SSL cert {ssl_cert}')
 
-    s3 = boto3.resource('s3')
+    session = boto3.session.Session(profile_name=profile)
+    s3 = session.resource('s3')
     return s3.Bucket(cfg['s3_bucket'])
 
 
