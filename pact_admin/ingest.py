@@ -556,10 +556,13 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None,
 
             # Optionally truncate to pre-T80 data
             if pre_t80 and t80_ts is not None:
-                # Match tz-awareness of the series index
-                if eff_full.index.tz is not None and t80_ts.tz is None:
-                    t80_ts = t80_ts.tz_localize(eff_full.index.tz)
-                eff_full = eff_full.loc[:t80_ts]
+                if isinstance(eff_full.index, pd.DatetimeIndex):
+                    if eff_full.index.tz is not None and t80_ts.tz is None:
+                        t80_ts = t80_ts.tz_localize(eff_full.index.tz)
+                    cutoff = t80_ts
+                else:
+                    cutoff = t80_ts.date()
+                eff_full = eff_full.loc[:cutoff]
 
             eff_plot = eff_full.dropna()
             if eff_plot.empty:
