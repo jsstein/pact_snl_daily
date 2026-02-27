@@ -243,6 +243,7 @@ def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
     # pact_plots/ directory being resolved as a namespace package.
     pact_analysis_dir = cfg.get('pact_analysis_path')
     pact_plots_dir = cfg.get('pact_plots_path')
+    ephemeris_dir = cfg.get('ephemeris_path', pact_analysis_dir)
     if not pact_analysis_dir or not pact_plots_dir:
         raise KeyError(
             'pact_analysis_path and pact_plots_path must be set in pact_config.json'
@@ -271,14 +272,17 @@ def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
             + lines
         )
 
-    # Skyfield's default Loader uses '.' (cwd at call time) to find de421.bsp.
-    # Temporarily chdir to pact_analysis_path where the file lives.
-    _orig_cwd = os.getcwd()
+    # Redirect Skyfield's loader to ephemeris_dir so it finds de421.bsp
+    # without attempting a download. Use skyfield.iokit.Loader directly
+    # (the concrete class) with an absolute path.
+    from skyfield.iokit import Loader as _SkyLoader
+    import skyfield.api as _skyfield_api
+    _original_loader = _skyfield_api.load
+    _skyfield_api.load = _SkyLoader(ephemeris_dir)
     try:
-        os.chdir(pact_analysis_dir)
         pp = _pp.PACTPlots(flat_file_path)
     finally:
-        os.chdir(_orig_cwd)
+        _skyfield_api.load = _original_loader
 
     plots_dir = get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'daily_plots'
     plots_dir.mkdir(parents=True, exist_ok=True)

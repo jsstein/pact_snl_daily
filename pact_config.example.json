@@ -6,6 +6,7 @@
     "aws_profile": "dev",
     "pact_analysis_path": "~/bin/pact_analysis",
     "pact_plots_path": "~/bin/pact_plots",
+    "ephemeris_path": "~/bin/pact_analysis",
     "db_server": "DB03SNLNT\\PR",
     "db_name": "PVGrid",
     "db_timezone": "MST",
