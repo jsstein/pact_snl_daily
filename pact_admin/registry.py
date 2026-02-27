@@ -138,16 +138,21 @@ def retire_module(cfg, pact_id, end_date):
     print(f'{pact_id}: Retired (End_date={end_str})')
 
 
-def delete_module(cfg, pact_id):
+def delete_module(cfg, pact_id, purge=False):
     """Permanently remove a module from the setup CSV and module-metadata.json.
 
     Use this to correct a module added by mistake or with wrong information.
-    Data files (point-data CSVs, PNGs) in Box Sync are NOT deleted.
 
     Parameters
     ----------
     pact_id : str, e.g. 'P-0150-01'
+    purge : bool
+        If True and no modules remain in the batch after deletion, remove the
+        entire batch directory tree from Box Sync (including all data files).
+        Default is False (data files are left on disk).
     """
+    import shutil
+
     # Read CSV first so we can get the site key before removing the row
     df = read_modules(cfg)
     mask = df['PACT_id'] == pact_id
@@ -157,26 +162,46 @@ def delete_module(cfg, pact_id):
     site_key = df.loc[mask, 'Site'].iloc[0] if 'Site' in df.columns else 'SNL'
     if not site_key:
         site_key = 'SNL'
+    batch = pact_id[:6]
 
     # Remove from setup CSV
     write_modules(df[~mask].reset_index(drop=True), cfg)
     print(f'{pact_id}: Removed from setup CSV')
 
     # Remove from module-metadata.json
-    batch = pact_id[:6]
     meta_path = get_module_metadata_path(cfg, batch, site_key)
+    remaining_modules = []
     if meta_path.exists():
         with open(meta_path) as f:
             data = json.load(f)
-        new_data = [m for m in data if m['module_id'] != pact_id]
-        if len(new_data) < len(data):
+        remaining_modules = [m for m in data if m['module_id'] != pact_id]
+        if len(remaining_modules) < len(data):
             with open(meta_path, 'w') as f:
-                json.dump(new_data, f, indent=4)
+                json.dump(remaining_modules, f, indent=4)
             print(f'{pact_id}: Removed from {meta_path}')
         else:
             print(f'{pact_id}: Not found in {meta_path}')
     else:
         print(f'{pact_id}: module-metadata.json not found at {meta_path}')
+
+    # Purge directory tree if requested and batch is now empty
+    if purge:
+        batch_still_has_modules = (
+            df[~mask]['PACT_id'].str.startswith(batch).any()
+        )
+        if batch_still_has_modules:
+            print(
+                f'{pact_id}: --purge skipped — other modules remain in batch {batch}'
+            )
+        else:
+            batch_dir = get_batch_dir(cfg, batch, site_key)
+            # batch_dir is base/P-XXXX-XX/Outdoor_SNL — go up to the batch root
+            batch_root = batch_dir.parent
+            if batch_root.exists():
+                shutil.rmtree(batch_root)
+                print(f'{pact_id}: Purged directory tree {batch_root}')
+            else:
+                print(f'{pact_id}: Directory not found, nothing to purge ({batch_root})')
 
 
 def list_modules(cfg, active_only=True):

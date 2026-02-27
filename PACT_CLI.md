@@ -25,6 +25,13 @@ Removes the module from the setup CSV and metadata. Data files in Box Sync are N
 python -m pact_admin delete-module --pact-id P-0150-01
 ```
 
+### Delete a module and purge its directory tree
+If this was the last module in the batch, `--purge` also removes the entire
+batch directory from Box Sync (all data files included).
+```
+python -m pact_admin delete-module --pact-id P-0150-01 --purge
+```
+
 ### List active modules
 ```
 python -m pact_admin list-modules

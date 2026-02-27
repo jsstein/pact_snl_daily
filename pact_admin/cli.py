@@ -54,6 +54,9 @@ def main():
              '(use for entries added by mistake)',
     )
     p.add_argument('--pact-id', required=True, metavar='P-XXXX-XX')
+    p.add_argument('--purge', action='store_true',
+                   help='Also delete the entire batch directory tree from Box Sync '
+                        'if no other modules remain in the batch')
 
     # ---- add-censor --------------------------------------------------------
     p = sub.add_parser('add-censor',
@@ -172,7 +175,7 @@ def main():
         registry.retire_module(cfg, pact_id=args.pact_id, end_date=args.end_date)
 
     elif args.command == 'delete-module':
-        registry.delete_module(cfg, pact_id=args.pact_id)
+        registry.delete_module(cfg, pact_id=args.pact_id, purge=args.purge)
 
     elif args.command == 'add-censor':
         registry.add_censor(
