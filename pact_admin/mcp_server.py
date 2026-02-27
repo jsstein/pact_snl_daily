@@ -41,7 +41,7 @@ def _capture_stdout():
 # Server
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("pact-admin")
+mcp = FastMCP("pact-admin", host="127.0.0.1", port=8000)
 
 
 # ---- Registry tools --------------------------------------------------------
@@ -264,4 +264,4 @@ def module_summary(active_only: bool = False, output_path: str = None) -> str:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host="127.0.0.1", port=8000)
+    mcp.run(transport="streamable-http")
