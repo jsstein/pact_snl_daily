@@ -271,15 +271,14 @@ def _regenerate_plot(cfg, pact_id, batch, outdoor_dir, verbose):
             + lines
         )
 
-    # Point Skyfield's loader at pact_analysis_path so it finds de421.bsp
-    # without trying to download it from the internet.
-    import skyfield.api as _skyfield_api
-    _original_loader = _skyfield_api.load
-    _skyfield_api.load = _skyfield_api.Loader(pact_analysis_dir)
+    # Skyfield's default Loader uses '.' (cwd at call time) to find de421.bsp.
+    # Temporarily chdir to pact_analysis_path where the file lives.
+    _orig_cwd = os.getcwd()
     try:
+        os.chdir(pact_analysis_dir)
         pp = _pp.PACTPlots(flat_file_path)
     finally:
-        _skyfield_api.load = _original_loader
+        os.chdir(_orig_cwd)
 
     plots_dir = get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'daily_plots'
     plots_dir.mkdir(parents=True, exist_ok=True)
