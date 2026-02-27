@@ -88,6 +88,32 @@ def main():
     p.add_argument('--no-s3', action='store_true', dest='no_s3',
                    help='Skip uploading files to S3 (useful off-network)')
 
+    # ---- update-batch ------------------------------------------------------
+    p = sub.add_parser(
+        'update-batch',
+        help='Fetch one month of DB data for all active modules in a batch',
+    )
+    p.add_argument('--batch', required=True, metavar='P-XXXX',
+                   help='Batch prefix, e.g. P-0042 (or P-0042-XX)')
+    p.add_argument('--year', required=True, type=int, metavar='YYYY',
+                   help='Four-digit year')
+    p.add_argument('--month', required=True, type=int, metavar='M',
+                   help='Month number (1–12)')
+    p.add_argument('--no-s3', action='store_true', dest='no_s3',
+                   help='Skip uploading files to S3')
+
+    # ---- update-all --------------------------------------------------------
+    p = sub.add_parser(
+        'update-all',
+        help='Fetch one month of DB data for all active modules',
+    )
+    p.add_argument('--year', required=True, type=int, metavar='YYYY',
+                   help='Four-digit year')
+    p.add_argument('--month', required=True, type=int, metavar='M',
+                   help='Month number (1–12)')
+    p.add_argument('--no-s3', action='store_true', dest='no_s3',
+                   help='Skip uploading files to S3')
+
     # ---- list-modules ------------------------------------------------------
     p = sub.add_parser('list-modules', help='List modules from the setup CSV')
     p.add_argument('--all', action='store_true', dest='show_all',
@@ -139,6 +165,23 @@ def main():
         ingest.update_module_month(
             cfg,
             pact_id=args.pact_id,
+            year=args.year,
+            month=args.month,
+            upload_s3=not args.no_s3,
+        )
+
+    elif args.command == 'update-batch':
+        ingest.update_batch_month(
+            cfg,
+            batch=args.batch,
+            year=args.year,
+            month=args.month,
+            upload_s3=not args.no_s3,
+        )
+
+    elif args.command == 'update-all':
+        ingest.update_all_month(
+            cfg,
             year=args.year,
             month=args.month,
             upload_s3=not args.no_s3,

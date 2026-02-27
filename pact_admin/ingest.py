@@ -445,3 +445,89 @@ def update_module_month(cfg, pact_id, year, month, upload_s3=True, verbose=True)
 
     if verbose:
         print(f'[{pact_id}] Done.')
+
+
+def update_batch_month(cfg, batch, year, month, upload_s3=True, verbose=True):
+    """Run update_module_month for every active module in *batch*.
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    batch : str
+        Batch prefix, e.g. 'P-0042' or 'P-0042-XX' (the -XX suffix is ignored).
+    year, month : int
+    upload_s3 : bool
+    verbose : bool
+    """
+    # Normalise 'P-0042-XX' → 'P-0042'
+    batch_prefix = batch[:6]
+
+    modules_df = registry.read_modules(cfg)
+    active = modules_df[
+        (modules_df['Active'] == 'Y') &
+        (modules_df['PACT_id'].str.startswith(batch_prefix))
+    ]
+
+    if active.empty:
+        print(f'No active modules found for batch {batch_prefix}.')
+        return
+
+    print(f'Batch {batch_prefix}: {len(active)} active module(s) — '
+          f'{", ".join(active["PACT_id"].tolist())}')
+
+    errors = []
+    for _, row in active.iterrows():
+        pact_id = row['PACT_id']
+        try:
+            update_module_month(cfg, pact_id, year, month,
+                                upload_s3=upload_s3, verbose=verbose)
+        except Exception as exc:
+            print(f'[{pact_id}] ERROR: {exc}')
+            errors.append((pact_id, exc))
+
+    if errors:
+        print(f'\n{len(errors)} module(s) failed:')
+        for pid, exc in errors:
+            print(f'  {pid}: {exc}')
+    else:
+        print(f'\nBatch {batch_prefix}: all modules completed successfully.')
+
+
+def update_all_month(cfg, year, month, upload_s3=True, verbose=True):
+    """Run update_module_month for every active module in the setup CSV.
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    year, month : int
+    upload_s3 : bool
+    verbose : bool
+    """
+    modules_df = registry.read_modules(cfg)
+    active = modules_df[modules_df['Active'] == 'Y']
+
+    if active.empty:
+        print('No active modules found in setup CSV.')
+        return
+
+    print(f'Updating {len(active)} active module(s) for '
+          f'{year}-{month:02d}: {", ".join(active["PACT_id"].tolist())}')
+
+    errors = []
+    for _, row in active.iterrows():
+        pact_id = row['PACT_id']
+        try:
+            update_module_month(cfg, pact_id, year, month,
+                                upload_s3=upload_s3, verbose=verbose)
+        except Exception as exc:
+            print(f'[{pact_id}] ERROR: {exc}')
+            errors.append((pact_id, exc))
+
+    if errors:
+        print(f'\n{len(errors)} module(s) failed:')
+        for pid, exc in errors:
+            print(f'  {pid}: {exc}')
+    else:
+        print(f'\nAll {len(active)} module(s) completed successfully.')
