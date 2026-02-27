@@ -531,18 +531,22 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None, verbose
         print(f'Plotting efficiency for {len(all_modules)} module(s)...')
 
     fig, ax = plt.subplots(figsize=(14, 6))
+    efficiency_series = {}
 
     for module in all_modules:
         try:
             dp = pa.daily_performance(module)
-            eff = dp['efficiency'].dropna() * 100  # convert fraction → %
-            if eff.empty:
+            # Keep full series (including NaN) for the CSV; drop NaN for the plot
+            eff_full = dp['efficiency'] * 100        # fraction → %
+            eff_plot = eff_full.dropna()
+            if eff_plot.empty:
                 if verbose:
                     print(f'  {module}: no valid data, skipped')
                 continue
-            ax.plot(eff.index, eff.values, linewidth=0.8, label=module)
+            efficiency_series[module] = eff_full
+            ax.plot(eff_plot.index, eff_plot.values, linewidth=0.8, color='black')
             if verbose:
-                print(f'  {module}: {len(eff)} valid days')
+                print(f'  {module}: {len(eff_plot)} valid days')
         except Exception as exc:
             if verbose:
                 print(f'  {module}: skipped ({exc})')
@@ -551,15 +555,21 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None, verbose
     ax.set_ylabel('Daily Efficiency (%)')
     ax.set_title('PACT Daily Module Efficiency')
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=7, bbox_to_anchor=(1.01, 1), loc='upper left',
-              borderaxespad=0)
 
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches='tight', dpi=150)
     plt.close(fig)
-
     if verbose:
         print(f'Saved: {output_path}')
+
+    # Save CSV table: one row per date, one column per module
+    if efficiency_series:
+        csv_path = Path(output_path).with_suffix('.csv')
+        table = pd.DataFrame(efficiency_series)
+        table.index.name = 'date'
+        table.to_csv(csv_path)
+        if verbose:
+            print(f'Saved: {csv_path}')
 
 
 def update_batch_month(cfg, batch, year, month, upload_s3=True, verbose=True):
