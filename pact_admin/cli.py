@@ -135,6 +135,16 @@ def main():
     p.add_argument('--all', action='store_true', dest='show_all',
                    help='Include inactive (Active=N) modules')
 
+    # ---- module-summary ----------------------------------------------------
+    p = sub.add_parser(
+        'module-summary',
+        help='Print a summary table (pact_id, start/end date, days to T80, max efficiency)',
+    )
+    p.add_argument('--output', default=None, metavar='PATH',
+                   help='Save the table as a CSV at this path')
+    p.add_argument('--active-only', action='store_true', dest='active_only',
+                   help='Only include modules listed as Active=Y in setup CSV')
+
     args = parser.parse_args()
     cfg = _load_config_or_exit()
 
@@ -217,6 +227,13 @@ def main():
     elif args.command == 'list-modules':
         df = registry.list_modules(cfg, active_only=not args.show_all)
         print(df.to_string(index=False))
+
+    elif args.command == 'module-summary':
+        ingest.generate_module_summary(
+            cfg,
+            output_path=args.output,
+            active_only=args.active_only,
+        )
 
 
 if __name__ == '__main__':

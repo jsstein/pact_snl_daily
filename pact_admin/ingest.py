@@ -572,7 +572,11 @@ def plot_all_efficiency(cfg, output_path, active_only=False, batch=None,
             efficiency_series[module] = eff_full
             if verbose:
                 t80_str = t80_dates[module] or 'not reached'
-                print(f'  {module}: {len(eff_plot)} valid days  (T80: {t80_str})')
+                t80_days = summary.get('t80')
+                if t80_days is not None:
+                    print(f'  {module}: {len(eff_plot)} valid days, {t80_days} days deployed to T80  (T80: {t80_str})')
+                else:
+                    print(f'  {module}: {len(eff_plot)} valid days  (T80: {t80_str})')
         except Exception as exc:
             if verbose:
                 print(f'  {module}: skipped ({exc})')
@@ -729,3 +733,92 @@ def update_all_month(cfg, year, month, upload_s3=True, verbose=True):
             print(f'  {pid}: {exc}')
     else:
         print(f'\nAll {len(active)} module(s) completed successfully.')
+
+
+def generate_module_summary(cfg, output_path=None, active_only=False, verbose=True):
+    """Generate a summary table for each module.
+
+    Columns: pact_id, start_date, end_date, days_to_t80, max_efficiency_pct
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    output_path : str or None
+        If provided, save the table as a CSV at this path.
+    active_only : bool
+        If True, only include modules listed as Active=Y in the setup CSV.
+    verbose : bool
+    """
+    flat_file_path = str(get_base_path(cfg))
+
+    orphans = _check_metadata_consistency(flat_file_path)
+    if orphans:
+        lines = '\n'.join(f'  {mid}  ({csv})' for mid, csv in orphans)
+        raise ValueError(
+            'The following modules have point-data CSV files but no entry in '
+            'module-metadata.json. Add them to the setup CSV and run '
+            '"python -m pact_admin sync-metadata", or remove the orphaned files:\n'
+            + lines
+        )
+
+    _pa, pact_analysis_dir, ephemeris_dir = _load_pact_analysis(cfg)
+
+    from skyfield.iokit import Loader as _SkyLoader
+    import skyfield.api as _skyfield_api
+    _original_loader = _skyfield_api.load
+    _skyfield_api.load = _SkyLoader(ephemeris_dir)
+    try:
+        pa = _pa.PACTAnalysis(flat_file_path)
+    finally:
+        _skyfield_api.load = _original_loader
+
+    modules_df = registry.read_modules(cfg)
+    if active_only:
+        modules_df = modules_df[modules_df['Active'] == 'Y']
+
+    rows = []
+    for _, reg_row in modules_df.iterrows():
+        pact_id = reg_row['PACT_id']
+        start_date = reg_row.get('Start_date', '')
+        end_date = reg_row.get('End_date', '')
+        active = reg_row.get('Active', 'Y')
+
+        # Normalise end_date: blank for active modules
+        if active == 'Y' or not end_date:
+            end_date = ''
+
+        t80_days = None
+        max_eff = None
+
+        if pact_id in pa.modules_available:
+            try:
+                summary = pa.summary_info(pact_id)
+                t80_days = summary.get('t80')          # None if not reached
+                peak = summary.get('peak_efficiency')
+                max_eff = round(peak * 100, 2) if peak is not None else None
+            except Exception as exc:
+                if verbose:
+                    print(f'  {pact_id}: skipped ({exc})')
+        else:
+            if verbose:
+                print(f'  {pact_id}: no point-data files found, skipped')
+
+        rows.append({
+            'pact_id': pact_id,
+            'start_date': start_date,
+            'end_date': end_date,
+            'days_to_t80': t80_days,
+            'max_efficiency_pct': max_eff,
+        })
+
+    table = pd.DataFrame(rows, columns=[
+        'pact_id', 'start_date', 'end_date', 'days_to_t80', 'max_efficiency_pct'
+    ])
+
+    print(table.to_string(index=False))
+
+    if output_path:
+        table.to_csv(output_path, index=False)
+        if verbose:
+            print(f'\nSaved: {output_path}')
