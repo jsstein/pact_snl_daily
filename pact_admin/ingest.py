@@ -1124,15 +1124,22 @@ def _process_iv_file(filepath, date_str, df_met, df_air, df_mppt, pad_cfg):
 
     filepath = Path(filepath)
 
-    # Parse header by key name to handle varying row positions.
-    # Header lines look like "Key: value" or "Key:value".
-    meta = pd.read_csv(filepath, nrows=18, header=None)
+    # Read header lines with plain open() to avoid pandas choking on the
+    # column-count change at the Voltage/Current data rows.
+    with open(filepath) as _f:
+        raw_lines = _f.readlines()
+
     header = {}
-    for i in range(len(meta)):
-        line = str(meta.iloc[i, 0])
-        if ':' in line:
-            key, _, val = line.partition(':')
+    skiprows = 18  # fallback
+    for i, line in enumerate(raw_lines):
+        stripped = line.strip()
+        if ':' in stripped:
+            key, _, val = stripped.partition(':')
             header[key.strip().lower()] = val.strip()
+        # The data block starts after the row that contains both column names.
+        if 'voltage' in stripped.lower() and 'current' in stripped.lower():
+            skiprows = i + 1
+            break
 
     starttime = header.get('start time', header.get('start', ''))
     endtime   = header.get('end time',   header.get('end',   ''))
@@ -1142,15 +1149,6 @@ def _process_iv_file(filepath, date_str, df_met, df_air, df_mppt, pad_cfg):
             f'Could not parse Start Time / End Time from header of {filepath.name}. '
             f'Header keys found: {list(header.keys())}'
         )
-
-    # Find the row where IV data begins (first row with numeric Voltage data).
-    # Scan for the header row containing 'Voltage' and skip past it.
-    skiprows = 18  # default from reference code
-    for i in range(len(meta)):
-        line = str(meta.iloc[i, 0]).strip().lower()
-        if 'voltage' in line:
-            skiprows = i + 1
-            break
 
     df_iv = pd.read_csv(filepath, skiprows=skiprows)
     voltage_points = df_iv['Voltage'].tolist()
