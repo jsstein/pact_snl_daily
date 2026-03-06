@@ -888,112 +888,79 @@ _DEFAULT_IV_SMB_URL = 'smb://snl/collaborative/pvpact/Outdoor_data/'
 _DEFAULT_IV_NETWORK_PATH = '/Volumes/Outdoor_data'
 
 
-def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> list:
-    """Find IV-curve CSV files for a module/date from the SNL network drive.
+def _resolve_iv_network_path(configured_path: Path):
+    """Return the local Path to the Outdoor_data directory if mounted, else None.
 
-    Connects to the SMB network drive if it is not already mounted, locates
-    the daily zip archive (YYMMDD.zip), extracts only the IV files for the
-    given module, and returns their paths.
-
-    Parameters
-    ----------
-    cfg : dict
-        Loaded pact_config.json.  Optional keys:
-        - ``iv_network_smb_url``: SMB URL to open if the drive is not mounted
-          (default: ``smb://snl/collaborative/pvpact/Outdoor_data/``)
-        - ``iv_network_path``: Local path where the SMB share is mounted
-          (default: ``/Volumes/collaborative/pvpact/Outdoor_data``)
-    pact_id : str
-        PACT module ID, e.g. ``P-0138-01``.
-    date_str : str
-        Date in ``YYYY-MM-DD`` format.
-    verbose : bool
-
-    Returns
-    -------
-    list of str
-        Sorted list of paths to the extracted IV CSV files.  Files are
-        extracted to a persistent temporary directory under
-        ``<tmpdir>/pact_iv_files/<date_str>/<pact_id>/``.
-
-    Raises
-    ------
-    RuntimeError
-        If the network drive cannot be accessed after 30 seconds.
-    FileNotFoundError
-        If the zip archive for the given date is not found on the drive.
+    Checks (in order):
+    1. The configured path directly.
+    2. The macOS ``mount`` table for an smbfs entry containing 'snl'/'collaborative'.
+    3. A broad scan of /Volumes/ for common mount structures.
     """
-    import re
+    import subprocess as _sp
+
+    if configured_path.exists():
+        return configured_path
+
+    try:
+        result = _sp.run(['mount'], capture_output=True, text=True, check=False)
+        for line in result.stdout.splitlines():
+            if 'smbfs' not in line:
+                continue
+            if 'snl' not in line.lower() or 'collaborative' not in line.lower():
+                continue
+            parts = line.split(' on ', 1)
+            if len(parts) == 2:
+                mount_point = parts[1].split(' (')[0].strip()
+                p = Path(mount_point) / 'pvpact' / 'Outdoor_data'
+                if p.exists():
+                    return p
+    except Exception:
+        pass
+
+    try:
+        for candidate in sorted(Path('/Volumes').iterdir()):
+            if candidate.name == 'Outdoor_data' and candidate.is_dir():
+                return candidate
+            for sub in (
+                candidate / 'Outdoor_data',
+                candidate / 'pvpact' / 'Outdoor_data',
+            ):
+                if sub.exists():
+                    return sub
+    except Exception:
+        pass
+
+    return None
+
+
+def _mount_iv_drive(cfg, verbose: bool = True) -> Path:
+    """Open the IV network drive in Finder and return its local Path.
+
+    Always calls ``open <smb_url>`` (brings the folder to the foreground if
+    already mounted, or triggers Connect to Server if not), then polls up to
+    30 s for the volume to become accessible.
+
+    Raises RuntimeError if the drive cannot be found after 30 s.
+    """
     import subprocess
-    import tempfile
     import time
-    import zipfile
 
     smb_url = cfg.get('iv_network_smb_url', _DEFAULT_IV_SMB_URL)
-    network_path = Path(cfg.get('iv_network_path', _DEFAULT_IV_NETWORK_PATH))
+    configured = Path(cfg.get('iv_network_path', _DEFAULT_IV_NETWORK_PATH))
 
-    # --- Ensure the network drive is mounted -----------------------------------
-    def _find_mounted_path():
-        """Find local mount point of the SMB share by querying the OS mount table."""
-        # 1. Configured path (fastest check)
-        if network_path.exists():
-            return network_path
-
-        # 2. Parse `mount` output to find any smbfs entry for this server/share.
-        #    macOS mount lines look like:
-        #      //user@snl/collaborative on /Volumes/collaborative (smbfs, ...)
-        try:
-            result = subprocess.run(
-                ['mount'], capture_output=True, text=True, check=False
-            )
-            for line in result.stdout.splitlines():
-                if 'smbfs' not in line:
-                    continue
-                if 'snl' not in line.lower() or 'collaborative' not in line.lower():
-                    continue
-                # Extract mount point: text between " on " and " ("
-                parts = line.split(' on ', 1)
-                if len(parts) == 2:
-                    mount_point = parts[1].split(' (')[0].strip()
-                    p = Path(mount_point) / 'pvpact' / 'Outdoor_data'
-                    if p.exists():
-                        return p
-        except Exception:
-            pass
-
-        # 3. Broad scan of /Volumes/ as last resort — check several structures:
-        #    - /Volumes/Outdoor_data/          (volume IS Outdoor_data)
-        #    - /Volumes/pvpact/Outdoor_data/   (Outdoor_data is a subdir)
-        #    - /Volumes/<anything>/pvpact/Outdoor_data/
-        try:
-            for candidate in sorted(Path('/Volumes').iterdir()):
-                if candidate.name == 'Outdoor_data' and candidate.is_dir():
-                    return candidate
-                for sub in (
-                    candidate / 'Outdoor_data',
-                    candidate / 'pvpact' / 'Outdoor_data',
-                ):
-                    if sub.exists():
-                        return sub
-        except Exception:
-            pass
-
-        return None
-
-    # Always open the SMB URL in Finder (brings the folder to the foreground
-    # if already mounted, or triggers the Connect to Server dialog if not).
     if verbose:
         print(f'Opening {smb_url} ...')
     subprocess.run(['open', smb_url], check=False)
 
-    resolved_path = _find_mounted_path()
-    if resolved_path is None:
+    resolved = _resolve_iv_network_path(configured)
+    if resolved is None:
         if verbose:
-            print('Waiting for network drive to mount (complete authentication in Finder if prompted)...')
+            print('Waiting for network drive to mount '
+                  '(complete authentication in Finder if prompted)...')
         for _ in range(30):
             time.sleep(1)
-            resolved_path = _find_mounted_path()
-            if resolved_path is not None:
+            resolved = _resolve_iv_network_path(configured)
+            if resolved is not None:
                 break
         else:
             raise RuntimeError(
@@ -1002,29 +969,66 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
             )
 
     if verbose:
-        print(f'Network drive found at {resolved_path}')
+        print(f'Network drive found at {resolved}')
+    return resolved
 
-    network_path = resolved_path
 
-    # --- Locate the daily zip archive -----------------------------------------
+def _unmount_iv_drive(network_path: Path, verbose: bool = True):
+    """Unmount the IV network drive volume and close its Finder window."""
+    import subprocess
+
+    # Unmount the volume (works even if network_path is a subdirectory of
+    # the mounted volume — diskutil walks up to the mount point).
+    result = subprocess.run(
+        ['diskutil', 'unmount', str(network_path)],
+        capture_output=True, text=True, check=False,
+    )
+    if verbose:
+        msg = result.stdout.strip() or result.stderr.strip()
+        if msg:
+            print(f'  {msg}')
+
+
+def _extract_iv_files_for_day(network_path: Path, pact_id: str,
+                               date_str: str, verbose: bool = False) -> list:
+    """Extract IV CSV files for one module/day from the network drive zip.
+
+    Parameters
+    ----------
+    network_path : Path
+        Local path to the mounted Outdoor_data directory.
+    pact_id : str
+        PACT module ID, e.g. 'P-0138-01'.
+    date_str : str
+        Date in 'YYYY-MM-DD' format.
+    verbose : bool
+
+    Returns
+    -------
+    list of str
+        Sorted paths of extracted IV CSV files.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the daily zip archive is not present on the drive.
+    """
+    import re
+    import tempfile
+    import zipfile
+
     d = datetime.strptime(date_str, '%Y-%m-%d')
     zip_name = d.strftime('%Y%m%d') + '.zip'
     zip_path = network_path / zip_name
 
     if not zip_path.is_file():
         raise FileNotFoundError(
-            f'ZIP archive not found: {zip_path}\n'
-            f'Expected file: {zip_name} in {network_path}'
+            f'ZIP archive not found: {zip_path}'
         )
 
-    if verbose:
-        print(f'Found archive: {zip_path}')
-
-    # --- Extract IV files for this module to a persistent temp directory ------
     dest_dir = Path(tempfile.gettempdir()) / 'pact_iv_files' / date_str / pact_id
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    # IV files match: YYYYMMDDHHMM_P-####-##_IV.csv
     date_prefix = d.strftime('%Y%m%d')
     iv_re = re.compile(
         rf'.*{re.escape(date_prefix)}\d{{4}}_{re.escape(pact_id)}_IV\.csv$'
@@ -1034,7 +1038,6 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
     with zipfile.ZipFile(zip_path) as zf:
         members = [m for m in zf.namelist() if iv_re.match(m)]
         if not members:
-            # Broader fallback: any member containing pact_id and ending _IV.csv
             members = [
                 m for m in zf.namelist()
                 if pact_id in m and m.endswith('_IV.csv')
@@ -1054,6 +1057,34 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
             print(f'No IV files found for {pact_id} on {date_str} in {zip_name}.')
 
     return extracted
+
+
+def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> list:
+    """Find IV-curve CSV files for a module/date from the SNL network drive.
+
+    Mounts the drive (opening Finder), extracts the IV files for the given
+    module from the daily zip (YYYYMMDD.zip), and returns their local paths.
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.  Optional keys:
+        ``iv_network_smb_url``, ``iv_network_path``.
+    pact_id : str
+        PACT module ID, e.g. 'P-0138-01'.
+    date_str : str
+        Date in 'YYYY-MM-DD' format.
+    verbose : bool
+
+    Returns
+    -------
+    list of str
+        Sorted paths to the extracted IV CSV files (persisted under
+        ``<tmpdir>/pact_iv_files/<date_str>/<pact_id>/``).
+    """
+    network_path = _mount_iv_drive(cfg, verbose=verbose)
+    return _extract_iv_files_for_day(network_path, pact_id, date_str,
+                                     verbose=verbose)
 
 
 # ---------------------------------------------------------------------------
@@ -1092,12 +1123,36 @@ def _process_iv_file(filepath, date_str, df_met, df_air, df_mppt, pad_cfg):
     from datetime import timezone, timedelta as _td
 
     filepath = Path(filepath)
-    meta = pd.read_csv(filepath, nrows=11, header=None)
 
-    starttime = meta.iloc[2, 0][11:]   # "Start Time: HH:MM:SS"
-    endtime   = meta.iloc[3, 0][9:]    # "End Time: HH:MM:SS"
+    # Parse header by key name to handle varying row positions.
+    # Header lines look like "Key: value" or "Key:value".
+    meta = pd.read_csv(filepath, nrows=18, header=None)
+    header = {}
+    for i in range(len(meta)):
+        line = str(meta.iloc[i, 0])
+        if ':' in line:
+            key, _, val = line.partition(':')
+            header[key.strip().lower()] = val.strip()
 
-    df_iv = pd.read_csv(filepath, skiprows=18)
+    starttime = header.get('start time', header.get('start', ''))
+    endtime   = header.get('end time',   header.get('end',   ''))
+
+    if not starttime or not endtime:
+        raise ValueError(
+            f'Could not parse Start Time / End Time from header of {filepath.name}. '
+            f'Header keys found: {list(header.keys())}'
+        )
+
+    # Find the row where IV data begins (first row with numeric Voltage data).
+    # Scan for the header row containing 'Voltage' and skip past it.
+    skiprows = 18  # default from reference code
+    for i in range(len(meta)):
+        line = str(meta.iloc[i, 0]).strip().lower()
+        if 'voltage' in line:
+            skiprows = i + 1
+            break
+
+    df_iv = pd.read_csv(filepath, skiprows=skiprows)
     voltage_points = df_iv['Voltage'].tolist()
     current_points = df_iv['Current'].tolist()
 
@@ -1225,43 +1280,48 @@ def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
         print('  Querying air temperature...')
     df_air = _query_air_temp(engine, start_dt_str, end_dt_str, tz)
 
-    # --- iterate over days ---
+    # --- mount drive once, iterate over days, then unmount ---
+    network_path = _mount_iv_drive(cfg, verbose=verbose)
+
     rows_list = []
-    for day in range(1, last_day + 1):
-        date_str = f'{year}{month:02d}{day:02d}'
-        date_iso = f'{year}-{month:02d}-{day:02d}'
+    try:
+        for day in range(1, last_day + 1):
+            date_str = f'{year}{month:02d}{day:02d}'
+            date_iso = f'{year}-{month:02d}-{day:02d}'
 
-        if verbose:
-            print(f'  Day {day:2d}/{last_day} ({date_iso})', end=' ... ')
-
-        try:
-            iv_files = find_iv_files(cfg, pact_id, date_iso, verbose=False)
-        except FileNotFoundError:
             if verbose:
-                print('no zip')
-            continue
-        except RuntimeError as exc:
-            if verbose:
-                print(f'skipped ({exc})')
-            continue
+                print(f'  Day {day:2d}/{last_day} ({date_iso})', end=' ... ')
 
-        if not iv_files:
-            if verbose:
-                print('no IV files')
-            continue
-
-        day_count = 0
-        for fpath in iv_files:
             try:
-                row = _process_iv_file(fpath, date_str, df_met, df_air,
-                                       df_mppt, pad_cfg)
-                rows_list.append(row)
-                day_count += 1
-            except Exception as exc:
+                iv_files = _extract_iv_files_for_day(
+                    network_path, pact_id, date_iso, verbose=False
+                )
+            except FileNotFoundError:
                 if verbose:
-                    print(f'\n    WARNING: {Path(fpath).name}: {exc}')
+                    print('no zip')
+                continue
+
+            if not iv_files:
+                if verbose:
+                    print('no IV files')
+                continue
+
+            day_count = 0
+            for fpath in iv_files:
+                try:
+                    row = _process_iv_file(fpath, date_str, df_met, df_air,
+                                           df_mppt, pad_cfg)
+                    rows_list.append(row)
+                    day_count += 1
+                except Exception as exc:
+                    if verbose:
+                        print(f'\n    WARNING: {Path(fpath).name}: {exc}')
+            if verbose:
+                print(f'{day_count} curve(s)')
+    finally:
         if verbose:
-            print(f'{day_count} curve(s)')
+            print('  Closing network drive...')
+        _unmount_iv_drive(network_path, verbose=verbose)
 
     if not rows_list:
         print(f'  {pact_id}: no IV curves found for {yearmonth}.')
