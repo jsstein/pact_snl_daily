@@ -933,7 +933,18 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
     network_path = Path(cfg.get('iv_network_path', _DEFAULT_IV_NETWORK_PATH))
 
     # --- Ensure the network drive is mounted -----------------------------------
-    if not network_path.exists():
+    def _find_mounted_path():
+        """Return network_path if it exists, else search /Volumes/ for pvpact/Outdoor_data."""
+        if network_path.exists():
+            return network_path
+        for candidate in sorted(Path('/Volumes').iterdir()):
+            p = candidate / 'pvpact' / 'Outdoor_data'
+            if p.exists():
+                return p
+        return None
+
+    resolved_path = _find_mounted_path()
+    if resolved_path is None:
         if verbose:
             print(f'Network drive not found at {network_path}.')
             print(f'Attempting to connect: {smb_url}')
@@ -941,15 +952,18 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
         subprocess.run(['open', smb_url], check=False)
         for _ in range(30):
             time.sleep(1)
-            if network_path.exists():
+            resolved_path = _find_mounted_path()
+            if resolved_path is not None:
                 break
         else:
             raise RuntimeError(
-                f'Could not access network drive at {network_path} after 30 s.\n'
+                f'Could not access network drive after 30 s.\n'
                 f'Connect manually: Finder → Go → Connect to Server → {smb_url}'
             )
         if verbose:
-            print(f'Connected to {smb_url}')
+            print(f'Connected — found at {resolved_path}')
+
+    network_path = resolved_path
 
     # --- Locate the daily zip archive -----------------------------------------
     d = datetime.strptime(date_str, '%Y-%m-%d')
