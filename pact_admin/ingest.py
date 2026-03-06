@@ -934,19 +934,48 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
 
     # --- Ensure the network drive is mounted -----------------------------------
     def _find_mounted_path():
-        """Return network_path if it exists, else search /Volumes/ for pvpact/Outdoor_data."""
+        """Find local mount point of the SMB share by querying the OS mount table."""
+        # 1. Configured path (fastest check)
         if network_path.exists():
             return network_path
-        for candidate in sorted(Path('/Volumes').iterdir()):
-            p = candidate / 'pvpact' / 'Outdoor_data'
-            if p.exists():
-                return p
+
+        # 2. Parse `mount` output to find any smbfs entry for this server/share.
+        #    macOS mount lines look like:
+        #      //user@snl/collaborative on /Volumes/collaborative (smbfs, ...)
+        try:
+            result = subprocess.run(
+                ['mount'], capture_output=True, text=True, check=False
+            )
+            for line in result.stdout.splitlines():
+                if 'smbfs' not in line:
+                    continue
+                if 'snl' not in line.lower() or 'collaborative' not in line.lower():
+                    continue
+                # Extract mount point: text between " on " and " ("
+                parts = line.split(' on ', 1)
+                if len(parts) == 2:
+                    mount_point = parts[1].split(' (')[0].strip()
+                    p = Path(mount_point) / 'pvpact' / 'Outdoor_data'
+                    if p.exists():
+                        return p
+        except Exception:
+            pass
+
+        # 3. Broad scan of /Volumes/ as last resort
+        try:
+            for candidate in sorted(Path('/Volumes').iterdir()):
+                p = candidate / 'pvpact' / 'Outdoor_data'
+                if p.exists():
+                    return p
+        except Exception:
+            pass
+
         return None
 
     resolved_path = _find_mounted_path()
     if resolved_path is None:
         if verbose:
-            print(f'Network drive not found at {network_path}.')
+            print(f'Network drive not found.')
             print(f'Attempting to connect: {smb_url}')
             print('Complete the authentication in Finder if prompted.')
         subprocess.run(['open', smb_url], check=False)
