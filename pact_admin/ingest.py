@@ -1136,9 +1136,9 @@ def _process_iv_file(filepath, date_str, df_met, df_air, df_mppt, pad_cfg):
         if ':' in stripped:
             key, _, val = stripped.partition(':')
             header[key.strip().lower()] = val.strip()
-        # The data block starts after the row that contains both column names.
+        # The Voltage/Current line is the column header; skip everything before it.
         if 'voltage' in stripped.lower() and 'current' in stripped.lower():
-            skiprows = i + 1
+            skiprows = i
             break
 
     starttime = header.get('start time', header.get('starttime', header.get('start', '')))
