@@ -15,7 +15,7 @@
     "no_proxy_s3": true,
     "ssl_cert": "~/Documents/SNL_Root_CA.crt",
     "iv_network_smb_url": "smb://snl/collaborative/pvpact/Outdoor_data/",
-    "iv_network_path": "/Volumes/collaborative/pvpact/Outdoor_data",
+    "iv_network_path": "/Volumes/Outdoor_data",
     "sites": {
         "SNL": {
             "label": "SNL",

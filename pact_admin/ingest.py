@@ -885,7 +885,7 @@ def generate_module_summary(cfg, output_path=None, active_only=False, verbose=Tr
 # ---------------------------------------------------------------------------
 
 _DEFAULT_IV_SMB_URL = 'smb://snl/collaborative/pvpact/Outdoor_data/'
-_DEFAULT_IV_NETWORK_PATH = '/Volumes/collaborative/pvpact/Outdoor_data'
+_DEFAULT_IV_NETWORK_PATH = '/Volumes/Outdoor_data'
 
 
 def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> list:
@@ -961,12 +961,20 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
         except Exception:
             pass
 
-        # 3. Broad scan of /Volumes/ as last resort
+        # 3. Broad scan of /Volumes/ as last resort — check several structures:
+        #    - /Volumes/Outdoor_data/          (volume IS Outdoor_data)
+        #    - /Volumes/pvpact/Outdoor_data/   (Outdoor_data is a subdir)
+        #    - /Volumes/<anything>/pvpact/Outdoor_data/
         try:
             for candidate in sorted(Path('/Volumes').iterdir()):
-                p = candidate / 'pvpact' / 'Outdoor_data'
-                if p.exists():
-                    return p
+                if candidate.name == 'Outdoor_data' and candidate.is_dir():
+                    return candidate
+                for sub in (
+                    candidate / 'Outdoor_data',
+                    candidate / 'pvpact' / 'Outdoor_data',
+                ):
+                    if sub.exists():
+                        return sub
         except Exception:
             pass
 
