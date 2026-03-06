@@ -1141,8 +1141,8 @@ def _process_iv_file(filepath, date_str, df_met, df_air, df_mppt, pad_cfg):
             skiprows = i + 1
             break
 
-    starttime = header.get('start time', header.get('start', ''))
-    endtime   = header.get('end time',   header.get('end',   ''))
+    starttime = header.get('start time', header.get('starttime', header.get('start', '')))
+    endtime   = header.get('end time',   header.get('endtime',   header.get('end',   '')))
 
     if not starttime or not endtime:
         raise ValueError(
