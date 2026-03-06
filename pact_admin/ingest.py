@@ -980,13 +980,16 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
 
         return None
 
+    # Always open the SMB URL in Finder (brings the folder to the foreground
+    # if already mounted, or triggers the Connect to Server dialog if not).
+    if verbose:
+        print(f'Opening {smb_url} ...')
+    subprocess.run(['open', smb_url], check=False)
+
     resolved_path = _find_mounted_path()
     if resolved_path is None:
         if verbose:
-            print(f'Network drive not found.')
-            print(f'Attempting to connect: {smb_url}')
-            print('Complete the authentication in Finder if prompted.')
-        subprocess.run(['open', smb_url], check=False)
+            print('Waiting for network drive to mount (complete authentication in Finder if prompted)...')
         for _ in range(30):
             time.sleep(1)
             resolved_path = _find_mounted_path()
@@ -997,14 +1000,15 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
                 f'Could not access network drive after 30 s.\n'
                 f'Connect manually: Finder → Go → Connect to Server → {smb_url}'
             )
-        if verbose:
-            print(f'Connected — found at {resolved_path}')
+
+    if verbose:
+        print(f'Network drive found at {resolved_path}')
 
     network_path = resolved_path
 
     # --- Locate the daily zip archive -----------------------------------------
     d = datetime.strptime(date_str, '%Y-%m-%d')
-    zip_name = d.strftime('%y%m%d') + '.zip'
+    zip_name = d.strftime('%Y%m%d') + '.zip'
     zip_path = network_path / zip_name
 
     if not zip_path.is_file():
