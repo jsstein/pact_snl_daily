@@ -336,6 +336,27 @@ def module_summary(active_only: bool = False, output_path: str = None) -> str:
     return buf.getvalue()
 
 
+@mcp.tool()
+def find_iv_files(pact_id: str, date: str) -> str:
+    """Find IV-curve CSV files for a module/date from the SNL network drive.
+
+    Connects to smb://snl/collaborative/pvpact/Outdoor_data/ if not already
+    mounted, opens the daily zip (YYMMDD.zip), and returns the paths of all
+    IV files matching YYYYMMDDHHMM_<pact_id>_IV.csv.
+
+    Args:
+        pact_id: PACT module ID, e.g. P-0138-01
+        date: Date of the IV measurements (YYYY-MM-DD)
+    """
+    with _capture_stdout() as buf:
+        paths = ingest.find_iv_files(cfg, pact_id=pact_id, date_str=date)
+    output = buf.getvalue().strip()
+    if paths:
+        files_list = '\n'.join(paths)
+        return f'{output}\n\n{files_list}' if output else files_list
+    return output or f'No IV files found for {pact_id} on {date}.'
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

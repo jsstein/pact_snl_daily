@@ -878,3 +878,124 @@ def generate_module_summary(cfg, output_path=None, active_only=False, verbose=Tr
         table.to_csv(output_path, index=False)
         if verbose:
             print(f'\nSaved: {output_path}')
+
+
+# ---------------------------------------------------------------------------
+# IV-curve file discovery from network drive
+# ---------------------------------------------------------------------------
+
+_DEFAULT_IV_SMB_URL = 'smb://snl/collaborative/pvpact/Outdoor_data/'
+_DEFAULT_IV_NETWORK_PATH = '/Volumes/collaborative/pvpact/Outdoor_data'
+
+
+def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> list:
+    """Find IV-curve CSV files for a module/date from the SNL network drive.
+
+    Connects to the SMB network drive if it is not already mounted, locates
+    the daily zip archive (YYMMDD.zip), extracts only the IV files for the
+    given module, and returns their paths.
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.  Optional keys:
+        - ``iv_network_smb_url``: SMB URL to open if the drive is not mounted
+          (default: ``smb://snl/collaborative/pvpact/Outdoor_data/``)
+        - ``iv_network_path``: Local path where the SMB share is mounted
+          (default: ``/Volumes/collaborative/pvpact/Outdoor_data``)
+    pact_id : str
+        PACT module ID, e.g. ``P-0138-01``.
+    date_str : str
+        Date in ``YYYY-MM-DD`` format.
+    verbose : bool
+
+    Returns
+    -------
+    list of str
+        Sorted list of paths to the extracted IV CSV files.  Files are
+        extracted to a persistent temporary directory under
+        ``<tmpdir>/pact_iv_files/<date_str>/<pact_id>/``.
+
+    Raises
+    ------
+    RuntimeError
+        If the network drive cannot be accessed after 30 seconds.
+    FileNotFoundError
+        If the zip archive for the given date is not found on the drive.
+    """
+    import re
+    import subprocess
+    import tempfile
+    import time
+    import zipfile
+
+    smb_url = cfg.get('iv_network_smb_url', _DEFAULT_IV_SMB_URL)
+    network_path = Path(cfg.get('iv_network_path', _DEFAULT_IV_NETWORK_PATH))
+
+    # --- Ensure the network drive is mounted -----------------------------------
+    if not network_path.exists():
+        if verbose:
+            print(f'Network drive not found at {network_path}.')
+            print(f'Attempting to connect: {smb_url}')
+            print('Complete the authentication in Finder if prompted.')
+        subprocess.run(['open', smb_url], check=False)
+        for _ in range(30):
+            time.sleep(1)
+            if network_path.exists():
+                break
+        else:
+            raise RuntimeError(
+                f'Could not access network drive at {network_path} after 30 s.\n'
+                f'Connect manually: Finder → Go → Connect to Server → {smb_url}'
+            )
+        if verbose:
+            print(f'Connected to {smb_url}')
+
+    # --- Locate the daily zip archive -----------------------------------------
+    d = datetime.strptime(date_str, '%Y-%m-%d')
+    zip_name = d.strftime('%y%m%d') + '.zip'
+    zip_path = network_path / zip_name
+
+    if not zip_path.is_file():
+        raise FileNotFoundError(
+            f'ZIP archive not found: {zip_path}\n'
+            f'Expected file: {zip_name} in {network_path}'
+        )
+
+    if verbose:
+        print(f'Found archive: {zip_path}')
+
+    # --- Extract IV files for this module to a persistent temp directory ------
+    dest_dir = Path(tempfile.gettempdir()) / 'pact_iv_files' / date_str / pact_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    # IV files match: YYYYMMDDHHMM_P-####-##_IV.csv
+    date_prefix = d.strftime('%Y%m%d')
+    iv_re = re.compile(
+        rf'.*{re.escape(date_prefix)}\d{{4}}_{re.escape(pact_id)}_IV\.csv$'
+    )
+
+    extracted = []
+    with zipfile.ZipFile(zip_path) as zf:
+        members = [m for m in zf.namelist() if iv_re.match(m)]
+        if not members:
+            # Broader fallback: any member containing pact_id and ending _IV.csv
+            members = [
+                m for m in zf.namelist()
+                if pact_id in m and m.endswith('_IV.csv')
+            ]
+        for member in members:
+            zf.extract(member, dest_dir)
+            extracted.append(str(dest_dir / member))
+
+    extracted.sort()
+
+    if verbose:
+        if extracted:
+            print(f'Extracted {len(extracted)} IV file(s) to {dest_dir}:')
+            for p in extracted:
+                print(f'  {p}')
+        else:
+            print(f'No IV files found for {pact_id} on {date_str} in {zip_name}.')
+
+    return extracted

@@ -162,6 +162,16 @@ def main():
     p.add_argument('--active-only', action='store_true', dest='active_only',
                    help='Only include modules listed as Active=Y in setup CSV')
 
+    # ---- find-iv-files -----------------------------------------------------
+    p = sub.add_parser(
+        'find-iv-files',
+        help='List IV-curve CSV files for a module/date from the SNL network drive',
+    )
+    p.add_argument('--pact-id', required=True, metavar='P-XXXX-XX',
+                   help='PACT module ID (e.g. P-0138-01)')
+    p.add_argument('--date', required=True, metavar='YYYY-MM-DD',
+                   help='Date of the IV measurements')
+
     args = parser.parse_args()
     cfg = _load_config_or_exit()
 
@@ -257,6 +267,9 @@ def main():
             output_path=args.output,
             active_only=args.active_only,
         )
+
+    elif args.command == 'find-iv-files':
+        ingest.find_iv_files(cfg, pact_id=args.pact_id, date_str=args.date)
 
 
 if __name__ == '__main__':
