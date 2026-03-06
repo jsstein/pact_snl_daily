@@ -1054,3 +1054,339 @@ def find_iv_files(cfg, pact_id: str, date_str: str, verbose: bool = True) -> lis
             print(f'No IV files found for {pact_id} on {date_str} in {zip_name}.')
 
     return extracted
+
+
+# ---------------------------------------------------------------------------
+# IV-curve processing helpers
+# ---------------------------------------------------------------------------
+
+def _fcl(df, dt):
+    """Return the row of df whose index is nearest in time to dt."""
+    idx = np.argmin(np.abs(df.index - dt))
+    return df.iloc[idx]
+
+
+def _process_iv_file(filepath, date_str, df_met, df_air, df_mppt, pad_cfg):
+    """Parse one IV CSV file and return a row dict with met/MPPT context.
+
+    Parameters
+    ----------
+    filepath : str or Path
+        Path to the extracted IV CSV file.
+    date_str : str
+        Date in YYYYMMDD format (8 chars, no dashes).
+    df_met : DataFrame
+        Met data (poa_global, surface_tilt, surface_azimuth) with tz-aware index.
+    df_air : DataFrame
+        Air temperature (temperature_air) with tz-aware index.
+    df_mppt : DataFrame
+        MPPT data (temperature_module) with tz-aware index.
+    pad_cfg : dict
+        TestPad configuration entry from _TESTPAD_MET.
+
+    Returns
+    -------
+    dict
+        One row ready to append to the IV DataFrame.
+    """
+    from datetime import timezone, timedelta as _td
+
+    filepath = Path(filepath)
+    meta = pd.read_csv(filepath, nrows=11, header=None)
+
+    starttime = meta.iloc[2, 0][11:]   # "Start Time: HH:MM:SS"
+    endtime   = meta.iloc[3, 0][9:]    # "End Time: HH:MM:SS"
+
+    df_iv = pd.read_csv(filepath, skiprows=18)
+    voltage_points = df_iv['Voltage'].tolist()
+    current_points = df_iv['Current'].tolist()
+
+    date_string = date_str[:4] + '-' + date_str[4:6] + '-' + date_str[6:]
+    utc_offset = timezone(_td(hours=-7))
+    start_dt = datetime.strptime(date_string + ' ' + starttime,
+                                 '%Y-%m-%d %H:%M:%S').replace(tzinfo=utc_offset)
+    end_dt   = datetime.strptime(date_string + ' ' + endtime,
+                                 '%Y-%m-%d %H:%M:%S').replace(tzinfo=utc_offset)
+
+    start_poa   = float(_fcl(df_met,  start_dt)['poa_global'])
+    end_poa     = float(_fcl(df_met,  end_dt)['poa_global'])
+    start_tamb  = float(_fcl(df_air,  start_dt)['temperature_air'])
+    end_tamb    = float(_fcl(df_air,  end_dt)['temperature_air'])
+    start_tmod  = float(_fcl(df_mppt, start_dt)['temperature_module'])
+    end_tmod    = float(_fcl(df_mppt, end_dt)['temperature_module'])
+
+    if pad_cfg['fixed_tilt']:
+        start_tilt    = float(pad_cfg['surface_tilt'])
+        end_tilt      = float(pad_cfg['surface_tilt'])
+        start_azimuth = float(pad_cfg['surface_azimuth'])
+        end_azimuth   = float(pad_cfg['surface_azimuth'])
+    else:
+        # surface_tilt column holds tracker altitude; true tilt = 90 − altitude
+        start_tilt    = 90.0 - float(_fcl(df_met, start_dt)['surface_tilt'])
+        end_tilt      = 90.0 - float(_fcl(df_met, end_dt)['surface_tilt'])
+        start_azimuth = float(_fcl(df_met, start_dt)['surface_azimuth']) + 180.0
+        end_azimuth   = float(_fcl(df_met, end_dt)['surface_azimuth']) + 180.0
+
+    duration = (
+        datetime.strptime(endtime,   '%H:%M:%S') -
+        datetime.strptime(starttime, '%H:%M:%S')
+    ).total_seconds()
+
+    return {
+        'date_time':                start_dt.strftime('%Y-%m-%d %H:%M:%S%z'),
+        'measurement_duration':     duration,
+        'poa_global_before':        start_poa,
+        'poa_global_after':         end_poa,
+        'temperature_air_before':   start_tamb,
+        'temperature_air_after':    end_tamb,
+        'temperature_module_before': start_tmod,
+        'temperature_module_after':  end_tmod,
+        'voltage_points':           voltage_points,
+        'current_points':           current_points,
+        'surface_tilt_before':      start_tilt,
+        'surface_tilt_after':       end_tilt,
+        'surface_azimuth_before':   start_azimuth,
+        'surface_azimuth_after':    end_azimuth,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Public: monthly IV-curve aggregation
+# ---------------------------------------------------------------------------
+
+def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
+    """Process all IV curves for a module/month and write a monthly CSV.
+
+    For each day of the month, opens the SNL network drive, extracts IV files
+    from the daily zip (YYYYMMDD.zip), and joins them with met and MPPT data
+    from the database.  Output is written to::
+
+        {base_path}/{batch}-XX/Outdoor_SNL/data/iv_curves/
+            iv-data_{pact_id}_{YYYY-MM}.csv
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    pact_id : str
+        PACT module ID, e.g. 'P-0138-01'.
+    year : int
+        Four-digit year.
+    month : int
+        Month number (1–12).
+    upload_s3 : bool
+        If True (default), upload the CSV to S3 after writing locally.
+    verbose : bool
+    """
+    yearmonth = f'{year}-{month:02d}'
+    last_day = calendar.monthrange(year, month)[1]
+    start_dt_str = f'{yearmonth}-01 00:00:00'
+    end_dt_str   = f'{yearmonth}-{last_day:02d} 23:59:59'
+
+    if verbose:
+        print(f'[{pact_id}] Processing IV curves for {yearmonth}')
+
+    # --- module info ---
+    modules_df = registry.read_modules(cfg)
+    rows = modules_df[modules_df['PACT_id'] == pact_id]
+    if rows.empty:
+        raise ValueError(f'{pact_id} not found in setup CSV')
+    module_row = rows.iloc[0]
+    tz = cfg.get('db_timezone', 'MST')
+    site_key = module_row.get('Site', 'SNL') or 'SNL'
+    outdoor_dir = cfg['sites'][site_key]['outdoor_directory']
+    batch = pact_id[:6]
+
+    # --- database queries (whole month at once) ---
+    engine = _make_engine(cfg)
+
+    if verbose:
+        print('  Querying MPPT data...')
+    df_mppt = _query_mppt(engine, pact_id, start_dt_str, end_dt_str, tz)
+    if df_mppt.empty:
+        print(f'  {pact_id}: no MPPT data for {yearmonth}. Nothing to do.')
+        return
+
+    testpad = int(df_mppt['TestPad'].iloc[-1])
+    if testpad not in _TESTPAD_MET:
+        raise ValueError(
+            f'TestPad {testpad} for {pact_id} is not recognised. '
+            f'Known TestPads: {sorted(_TESTPAD_MET)}'
+        )
+    pad_cfg = _TESTPAD_MET[testpad]
+    if verbose:
+        print(f'  TestPad: {testpad}')
+
+    if verbose:
+        print(f'  Querying met from {pad_cfg["table"]}...')
+    df_met = _query_met(engine, pad_cfg, start_dt_str, end_dt_str, tz)
+
+    if verbose:
+        print('  Querying air temperature...')
+    df_air = _query_air_temp(engine, start_dt_str, end_dt_str, tz)
+
+    # --- iterate over days ---
+    rows_list = []
+    for day in range(1, last_day + 1):
+        date_str = f'{year}{month:02d}{day:02d}'
+        date_iso = f'{year}-{month:02d}-{day:02d}'
+
+        if verbose:
+            print(f'  Day {day:2d}/{last_day} ({date_iso})', end=' ... ')
+
+        try:
+            iv_files = find_iv_files(cfg, pact_id, date_iso, verbose=False)
+        except FileNotFoundError:
+            if verbose:
+                print('no zip')
+            continue
+        except RuntimeError as exc:
+            if verbose:
+                print(f'skipped ({exc})')
+            continue
+
+        if not iv_files:
+            if verbose:
+                print('no IV files')
+            continue
+
+        day_count = 0
+        for fpath in iv_files:
+            try:
+                row = _process_iv_file(fpath, date_str, df_met, df_air,
+                                       df_mppt, pad_cfg)
+                rows_list.append(row)
+                day_count += 1
+            except Exception as exc:
+                if verbose:
+                    print(f'\n    WARNING: {Path(fpath).name}: {exc}')
+        if verbose:
+            print(f'{day_count} curve(s)')
+
+    if not rows_list:
+        print(f'  {pact_id}: no IV curves found for {yearmonth}.')
+        return
+
+    ivdf = (
+        pd.DataFrame(rows_list)
+        .sort_values('date_time')
+        .reset_index(drop=True)
+    )
+
+    out_dir = (
+        get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'data' / 'iv_curves'
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f'iv-data_{pact_id}_{yearmonth}.csv'
+    ivdf.to_csv(out_path, index=False)
+
+    if verbose:
+        print(f'\n  Wrote {len(ivdf)} IV curves → {out_path}')
+
+    # --- upload to S3 ---
+    if upload_s3:
+        bucket = _make_s3_bucket(cfg, verbose=verbose)
+        if bucket is None:
+            if verbose:
+                print('  boto3 not available; skipping S3 upload.')
+        else:
+            s3_key = (
+                f'{batch}-XX/{outdoor_dir}/data/iv_curves/'
+                f'iv-data_{pact_id}_{yearmonth}.csv'
+            )
+            try:
+                bucket.upload_file(str(out_path), s3_key)
+                if verbose:
+                    print(f'  S3: {s3_key}')
+            except Exception as exc:
+                print(f'  S3 upload failed: {exc}')
+
+    return ivdf
+
+
+def update_ivs_batch(cfg, batch, year, month, upload_s3=True, verbose=True):
+    """Run update_ivs for all active modules in a batch (e.g. P-0042).
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    batch : str
+        Batch prefix, e.g. 'P-0042' or 'P-0042-XX'.
+    year : int
+    month : int
+    upload_s3 : bool
+        If True (default), upload each module's CSV to S3.
+    verbose : bool
+    """
+    batch_prefix = batch[:6]
+    modules_df = registry.read_modules(cfg)
+    active = modules_df[
+        (modules_df['Active'] == 'Y') &
+        (modules_df['PACT_id'].str.startswith(batch_prefix))
+    ]
+
+    if active.empty:
+        print(f'No active modules found for batch {batch_prefix}.')
+        return
+
+    print(f'Batch {batch_prefix}: {len(active)} active module(s) — '
+          f'{", ".join(active["PACT_id"].tolist())}')
+
+    errors = []
+    for _, row in active.iterrows():
+        pact_id = row['PACT_id']
+        try:
+            update_ivs(cfg, pact_id, year, month,
+                       upload_s3=upload_s3, verbose=verbose)
+        except Exception as exc:
+            print(f'[{pact_id}] ERROR: {exc}')
+            errors.append((pact_id, exc))
+
+    if errors:
+        print(f'\n{len(errors)} module(s) failed:')
+        for pid, exc in errors:
+            print(f'  {pid}: {exc}')
+    else:
+        print(f'\nBatch {batch_prefix}: all modules completed successfully.')
+
+
+def update_ivs_all(cfg, year, month, upload_s3=True, verbose=True):
+    """Run update_ivs for every active module in the setup CSV.
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    year : int
+    month : int
+    upload_s3 : bool
+        If True (default), upload each module's CSV to S3.
+    verbose : bool
+    """
+    modules_df = registry.read_modules(cfg)
+    active = modules_df[modules_df['Active'] == 'Y']
+
+    if active.empty:
+        print('No active modules found in setup CSV.')
+        return
+
+    print(f'Updating IV curves for {len(active)} active module(s) — '
+          f'{year}-{month:02d}')
+
+    errors = []
+    for _, row in active.iterrows():
+        pact_id = row['PACT_id']
+        try:
+            update_ivs(cfg, pact_id, year, month,
+                       upload_s3=upload_s3, verbose=verbose)
+        except Exception as exc:
+            print(f'[{pact_id}] ERROR: {exc}')
+            errors.append((pact_id, exc))
+
+    if errors:
+        print(f'\n{len(errors)} module(s) failed:')
+        for pid, exc in errors:
+            print(f'  {pid}: {exc}')
+    else:
+        print(f'\nAll {len(active)} module(s) completed successfully.')

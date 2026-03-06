@@ -172,6 +172,42 @@ def main():
     p.add_argument('--date', required=True, metavar='YYYY-MM-DD',
                    help='Date of the IV measurements')
 
+    # ---- update-ivs --------------------------------------------------------
+    p = sub.add_parser(
+        'update-ivs',
+        help='Process all IV curves for a module/month and write a monthly CSV',
+    )
+    p.add_argument('--pact-id', required=True, metavar='P-XXXX-XX',
+                   help='PACT module ID (e.g. P-0138-01)')
+    p.add_argument('--year', required=True, type=int, metavar='YYYY',
+                   help='Four-digit year')
+    p.add_argument('--month', required=True, type=int, metavar='M',
+                   help='Month number (1–12)')
+    p.add_argument('--no-s3', action='store_true', dest='no_s3',
+                   help='Skip uploading the CSV to S3')
+
+    # ---- update-ivs-batch --------------------------------------------------
+    p = sub.add_parser(
+        'update-ivs-batch',
+        help='Process IV curves for all active modules in a batch',
+    )
+    p.add_argument('--batch', required=True, metavar='P-XXXX',
+                   help='Batch prefix, e.g. P-0042 (or P-0042-XX)')
+    p.add_argument('--year', required=True, type=int, metavar='YYYY')
+    p.add_argument('--month', required=True, type=int, metavar='M')
+    p.add_argument('--no-s3', action='store_true', dest='no_s3',
+                   help='Skip uploading CSVs to S3')
+
+    # ---- update-ivs-all ----------------------------------------------------
+    p = sub.add_parser(
+        'update-ivs-all',
+        help='Process IV curves for all active modules',
+    )
+    p.add_argument('--year', required=True, type=int, metavar='YYYY')
+    p.add_argument('--month', required=True, type=int, metavar='M')
+    p.add_argument('--no-s3', action='store_true', dest='no_s3',
+                   help='Skip uploading CSVs to S3')
+
     args = parser.parse_args()
     cfg = _load_config_or_exit()
 
@@ -270,6 +306,18 @@ def main():
 
     elif args.command == 'find-iv-files':
         ingest.find_iv_files(cfg, pact_id=args.pact_id, date_str=args.date)
+
+    elif args.command == 'update-ivs':
+        ingest.update_ivs(cfg, pact_id=args.pact_id, year=args.year,
+                          month=args.month, upload_s3=not args.no_s3)
+
+    elif args.command == 'update-ivs-batch':
+        ingest.update_ivs_batch(cfg, batch=args.batch, year=args.year,
+                                month=args.month, upload_s3=not args.no_s3)
+
+    elif args.command == 'update-ivs-all':
+        ingest.update_ivs_all(cfg, year=args.year, month=args.month,
+                              upload_s3=not args.no_s3)
 
 
 if __name__ == '__main__':

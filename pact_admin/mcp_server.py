@@ -337,6 +337,107 @@ def module_summary(active_only: bool = False, output_path: str = None) -> str:
 
 
 @mcp.tool()
+def update_ivs(pact_id: str, year: int, month: int, upload_s3: bool = True) -> str:
+    """Process all IV curves for a module/month and write a monthly CSV.
+
+    Opens the SNL network drive, extracts IV files from each day's zip archive
+    (YYYYMMDD.zip), joins them with met and MPPT data from the database, and
+    writes the result to:
+        {base_path}/{batch}-XX/Outdoor_SNL/data/iv_curves/
+            iv-data_{pact_id}_{YYYY-MM}.csv
+
+    Args:
+        pact_id: PACT module ID, e.g. P-0138-01
+        year: Four-digit year
+        month: Month number (1-12)
+        upload_s3: Upload the CSV to S3 (default True)
+    """
+    with _capture_stdout() as buf:
+        ingest.update_ivs(cfg, pact_id=pact_id, year=year, month=month,
+                          upload_s3=upload_s3)
+    return buf.getvalue()
+
+
+@mcp.tool()
+async def update_ivs_batch(ctx: Context, batch: str, year: int, month: int,
+                           upload_s3: bool = True) -> str:
+    """Process IV curves for all active modules in a batch.
+
+    Args:
+        batch: Batch prefix, e.g. P-0042 (or P-0042-XX)
+        year: Four-digit year
+        month: Month number (1-12)
+        upload_s3: Upload each CSV to S3 (default True)
+    """
+    batch_prefix = batch[:6]
+    modules_df = registry.read_modules(cfg)
+    active = modules_df[
+        (modules_df['Active'] == 'Y') &
+        (modules_df['PACT_id'].str.startswith(batch_prefix))
+    ]
+
+    if active.empty:
+        return f'No active modules found for batch {batch_prefix}.'
+
+    total = len(active)
+    results = []
+    await ctx.info(f'Processing IV curves for {total} module(s) in {batch_prefix} — {year}-{month:02d}')
+
+    for i, (_, row) in enumerate(active.iterrows()):
+        pact_id = row['PACT_id']
+        await ctx.info(f'[{i+1}/{total}] {pact_id} — starting...')
+        with _capture_stdout() as buf:
+            try:
+                ingest.update_ivs(cfg, pact_id=pact_id, year=year, month=month,
+                                  upload_s3=upload_s3)
+                results.append(f'✓ {pact_id}')
+            except Exception as exc:
+                results.append(f'✗ {pact_id}: {exc}')
+        out = buf.getvalue().strip()
+        if out:
+            await ctx.info(out)
+
+    return '\n'.join(results)
+
+
+@mcp.tool()
+async def update_ivs_all(ctx: Context, year: int, month: int,
+                         upload_s3: bool = True) -> str:
+    """Process IV curves for all active modules.
+
+    Args:
+        year: Four-digit year
+        month: Month number (1-12)
+        upload_s3: Upload each CSV to S3 (default True)
+    """
+    modules_df = registry.read_modules(cfg)
+    active = modules_df[modules_df['Active'] == 'Y']
+
+    if active.empty:
+        return 'No active modules found.'
+
+    total = len(active)
+    results = []
+    await ctx.info(f'Processing IV curves for {total} active module(s) — {year}-{month:02d}')
+
+    for i, (_, row) in enumerate(active.iterrows()):
+        pact_id = row['PACT_id']
+        await ctx.info(f'[{i+1}/{total}] {pact_id} — starting...')
+        with _capture_stdout() as buf:
+            try:
+                ingest.update_ivs(cfg, pact_id=pact_id, year=year, month=month,
+                                  upload_s3=upload_s3)
+                results.append(f'✓ {pact_id}')
+            except Exception as exc:
+                results.append(f'✗ {pact_id}: {exc}')
+        out = buf.getvalue().strip()
+        if out:
+            await ctx.info(out)
+
+    return '\n'.join(results)
+
+
+@mcp.tool()
 def find_iv_files(pact_id: str, date: str) -> str:
     """Find IV-curve CSV files for a module/date from the SNL network drive.
 
