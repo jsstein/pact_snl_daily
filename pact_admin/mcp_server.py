@@ -399,6 +399,65 @@ def find_iv_files(pact_id: str, date: str) -> str:
     return output or f'No IV files found for {pact_id} on {date}.'
 
 
+# ---- S3 tools --------------------------------------------------------------
+
+@mcp.tool()
+def s3_list(prefix: str = '') -> str:
+    """List objects in the PACT S3 bucket, optionally filtered by prefix.
+
+    Args:
+        prefix: Key prefix to filter by, e.g. 'P-0138-XX/Outdoor_SNL/data/'
+    """
+    with _capture_stdout() as buf:
+        results = ingest.s3_list(cfg, prefix=prefix)
+    lines = [f'{key}  ({size:,} bytes,  {modified:%Y-%m-%d %H:%M})'
+             for key, size, modified in results]
+    header = f'{len(results)} object(s) in s3://{cfg["s3_bucket"]}/{prefix or ""}\n'
+    return header + '\n'.join(lines) if lines else f'No objects found with prefix "{prefix}".'
+
+
+@mcp.tool()
+def s3_upload(local_path: str, s3_key: str) -> str:
+    """Upload a local file to the PACT S3 bucket.
+
+    Args:
+        local_path: Absolute path to the local file to upload
+        s3_key: Destination key in S3, e.g. 'P-0138-XX/Outdoor_SNL/data/point-data/file.csv'
+    """
+    with _capture_stdout() as buf:
+        ingest.s3_upload(cfg, local_path=local_path, s3_key=s3_key)
+    return buf.getvalue().strip()
+
+
+@mcp.tool()
+def s3_download(s3_key: str, local_path: str) -> str:
+    """Download a file from the PACT S3 bucket to a local path.
+
+    Args:
+        s3_key: S3 object key to download
+        local_path: Local destination path (parent directories created if needed)
+    """
+    with _capture_stdout() as buf:
+        ingest.s3_download(cfg, s3_key=s3_key, local_path=local_path)
+    return buf.getvalue().strip()
+
+
+@mcp.tool()
+def s3_delete(prefix: str, pattern: str = '*') -> str:
+    """Delete objects from the PACT S3 bucket matching a prefix and wildcard pattern.
+
+    Args:
+        prefix: Key prefix identifying the directory, e.g. 'P-0138-XX/Outdoor_SNL/data/'
+        pattern: Wildcard pattern matched against the full key, e.g. '*.csv' or '*2025-01*'
+                 (default '*' = all objects under prefix)
+    """
+    with _capture_stdout() as buf:
+        deleted = ingest.s3_delete(cfg, prefix=prefix, pattern=pattern)
+    output = buf.getvalue().strip()
+    summary = f'Deleted {len(deleted)} object(s).'
+    return f'{output}\n{summary}'.strip() if output else summary
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

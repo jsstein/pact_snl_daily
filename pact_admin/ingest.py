@@ -1540,3 +1540,59 @@ def update_ivs_all(cfg, year, month, upload_s3=True, verbose=True):
             print(f'  {pid}: {exc}')
     else:
         print(f'\nAll {len(active)} module(s) completed successfully.')
+
+
+# ---------------------------------------------------------------------------
+# S3 utilities
+# ---------------------------------------------------------------------------
+
+def s3_list(cfg, prefix='', verbose=True):
+    """List objects in the S3 bucket, optionally filtered by prefix.
+
+    Returns list of (key, size_bytes, last_modified) tuples.
+    """
+    bucket = _make_s3_bucket(cfg, verbose=verbose)
+    results = []
+    for obj in bucket.objects.filter(Prefix=prefix):
+        results.append((obj.key, obj.size, obj.last_modified))
+    return results
+
+
+def s3_upload(cfg, local_path, s3_key, verbose=True):
+    """Upload a single local file to S3 at the given key."""
+    bucket = _make_s3_bucket(cfg, verbose=verbose)
+    bucket.upload_file(str(local_path), s3_key)
+    if verbose:
+        print(f'S3 upload: {local_path} → s3://{cfg["s3_bucket"]}/{s3_key}')
+
+
+def s3_download(cfg, s3_key, local_path, verbose=True):
+    """Download a single S3 object to a local path."""
+    bucket = _make_s3_bucket(cfg, verbose=verbose)
+    Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+    bucket.download_file(s3_key, str(local_path))
+    if verbose:
+        print(f'S3 download: s3://{cfg["s3_bucket"]}/{s3_key} → {local_path}')
+    return str(local_path)
+
+
+def s3_delete(cfg, prefix, pattern='*', verbose=True):
+    """Delete S3 objects under prefix matching a wildcard pattern.
+
+    Returns list of deleted keys.
+    """
+    import fnmatch
+    bucket = _make_s3_bucket(cfg, verbose=verbose)
+    to_delete = [
+        obj.key for obj in bucket.objects.filter(Prefix=prefix)
+        if fnmatch.fnmatch(obj.key, pattern)
+    ]
+    if not to_delete:
+        if verbose:
+            print('No matching objects found.')
+        return []
+    for key in to_delete:
+        bucket.Object(key).delete()
+        if verbose:
+            print(f'Deleted: {key}')
+    return to_delete
