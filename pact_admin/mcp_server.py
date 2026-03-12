@@ -84,6 +84,49 @@ def add_module(
 
 
 @mcp.tool()
+def add_modules_bulk(
+    pact_id_start: str,
+    pact_id_end: str,
+    psel_id_start: int,
+    area: float,
+    module_type: str,
+    start_date: str,
+    site: str,
+    notes: str = "",
+) -> str:
+    """Add a consecutive range of modules that share all parameters except pact_id and psel_id.
+
+    site must be one of: 'SNL' or 'SNL_fixed-tilt'.
+
+    Example: pact_id_start='P-0150-01', pact_id_end='P-0150-10', psel_id_start=3350
+    adds P-0150-01 (psel 3350) through P-0150-10 (psel 3359).
+
+    Args:
+        pact_id_start: First module ID in the range, e.g. P-0150-01
+        pact_id_end: Last module ID in the range, e.g. P-0150-10
+        psel_id_start: PSEL ID for the first module; incremented by 1 for each subsequent module
+        area: Module area in m²
+        module_type: Module type string, e.g. MHP or OPV
+        start_date: Outdoor deployment start date (YYYY-MM-DD)
+        site: Site key — must be 'SNL' or 'SNL_fixed-tilt'
+        notes: Optional notes applied to all modules
+    """
+    with _capture_stdout() as buf:
+        registry.add_modules_bulk(
+            cfg,
+            pact_id_start=pact_id_start,
+            pact_id_end=pact_id_end,
+            psel_id_start=psel_id_start,
+            area=area,
+            module_type=module_type,
+            start_date=start_date,
+            site=site,
+            notes=notes,
+        )
+    return buf.getvalue()
+
+
+@mcp.tool()
 def delete_module(pact_id: str, purge: bool = False) -> str:
     """Permanently delete a module from the setup CSV and module-metadata.json.
 

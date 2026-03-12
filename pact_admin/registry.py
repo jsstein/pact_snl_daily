@@ -350,6 +350,59 @@ def list_modules(cfg, active_only=True):
     return df
 
 
+def add_modules_bulk(cfg, pact_id_start, pact_id_end, psel_id_start,
+                     area, module_type, start_date, site, notes=''):
+    """Add a consecutive range of modules that share all parameters except
+    pact_id and psel_id.
+
+    pact_id_start and pact_id_end must share the same batch prefix and differ
+    only in their numeric suffix, e.g. 'P-0150-01' .. 'P-0150-10'.
+    psel_id_start is assigned to the first module; each subsequent module
+    gets psel_id_start + offset.
+
+    Parameters
+    ----------
+    pact_id_start : str, e.g. 'P-0150-01'
+    pact_id_end   : str, e.g. 'P-0150-10'
+    psel_id_start : int
+    area, module_type, start_date, site, notes : same as add_module
+    """
+    # Parse prefix and numeric range from pact_id_start / pact_id_end
+    prefix_start, _, suffix_start = pact_id_start.rpartition('-')
+    prefix_end,   _, suffix_end   = pact_id_end.rpartition('-')
+    if prefix_start != prefix_end:
+        raise ValueError(
+            f'pact_id_start and pact_id_end must share the same prefix '
+            f'({prefix_start!r} != {prefix_end!r})'
+        )
+    try:
+        n_start = int(suffix_start)
+        n_end   = int(suffix_end)
+    except ValueError:
+        raise ValueError(
+            f'Module suffixes must be integers: {suffix_start!r}, {suffix_end!r}'
+        )
+    if n_end < n_start:
+        raise ValueError(
+            f'pact_id_end ({pact_id_end}) must be >= pact_id_start ({pact_id_start})'
+        )
+
+    width = len(suffix_start)  # preserve zero-padding width
+    results = []
+    for offset, n in enumerate(range(n_start, n_end + 1)):
+        pact_id = f'{prefix_start}-{n:0{width}d}'
+        psel_id = psel_id_start + offset
+        try:
+            add_module(cfg, pact_id=pact_id, psel_id=psel_id, area=area,
+                       module_type=module_type, start_date=start_date,
+                       site=site, notes=notes)
+            results.append(f'✓ {pact_id} (psel_id={psel_id})')
+        except Exception as exc:
+            results.append(f'✗ {pact_id}: {exc}')
+
+    print('\n'.join(results))
+
+
 def update_module(cfg, pact_id, area=None, module_type=None, psel_id=None,
                   site=None, start_date=None, notes=None):
     """Update one or more fields on an existing module in pact_modules (DB + CSV backup).
