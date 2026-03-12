@@ -336,19 +336,30 @@ async def update_ivs(ctx: Context, target: str, year: int, month: int, upload_s3
     results = []
     await ctx.info(f'Processing IV curves for {total} module(s) for {label} — {year}-{month:02d}')
 
-    for i, (_, row) in enumerate(active.iterrows()):
-        pact_id = row['PACT_id']
-        await ctx.info(f'[{i+1}/{total}] {pact_id} — starting...')
-        with _capture_stdout() as buf:
-            try:
-                ingest.update_ivs(cfg, pact_id=pact_id, year=year, month=month,
-                                  upload_s3=upload_s3)
-                results.append(f'✓ {pact_id}')
-            except Exception as exc:
-                results.append(f'✗ {pact_id}: {exc}')
-        out = buf.getvalue().strip()
-        if out:
-            await ctx.info(out)
+    with _capture_stdout() as mount_buf:
+        network_path = ingest._mount_iv_drive(cfg, verbose=True)
+    if mount_buf.getvalue().strip():
+        await ctx.info(mount_buf.getvalue().strip())
+
+    try:
+        for i, (_, row) in enumerate(active.iterrows()):
+            pact_id = row['PACT_id']
+            await ctx.info(f'[{i+1}/{total}] {pact_id} — starting...')
+            with _capture_stdout() as buf:
+                try:
+                    ingest.update_ivs(cfg, pact_id=pact_id, year=year, month=month,
+                                      upload_s3=upload_s3, _network_path=network_path)
+                    results.append(f'✓ {pact_id}')
+                except Exception as exc:
+                    results.append(f'✗ {pact_id}: {exc}')
+            out = buf.getvalue().strip()
+            if out:
+                await ctx.info(out)
+    finally:
+        with _capture_stdout() as unmount_buf:
+            ingest._unmount_iv_drive(network_path, verbose=True)
+        if unmount_buf.getvalue().strip():
+            await ctx.info(unmount_buf.getvalue().strip())
 
     return '\n'.join(results)
 
