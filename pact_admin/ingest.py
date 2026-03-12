@@ -1472,14 +1472,7 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None):
     v = df_fil['voltage_points'].apply(_to_array)
     i = df_fil['current_points'].apply(_to_array)
 
-    # Line-length helper
-    def _line_length(x_arr, y_arr):
-        dx = np.diff(x_arr)
-        dy = np.diff(y_arr)
-        return float(np.sum(np.sqrt(dx**2 + dy**2)))
-
-    # Two-panel figure
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig, ax1 = plt.subplots(figsize=(8, 5))
     fig.suptitle(
         f'{pact_id}  —  IV curves  {yearmonth}  ({n_kept}/{n_total} curves after filter)'
     )
@@ -1489,13 +1482,12 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None):
     ax1.set_xlabel('Voltage (V)')
     ax1.set_ylabel('Current (A)')
     ax1.set_xlim(left=0)
-
-    for idx in v.index:
-        ll = _line_length(v.loc[idx], i.loc[idx])
-        irr = df_fil.loc[idx, 'poa_global_before']
-        ax2.scatter(irr, ll, c='k', s=10)
-    ax2.set_xlabel('Irradiance (W/m²)')
-    ax2.set_ylabel('IV Line Length')
+    ax1.annotate(
+        'Filter: |ΔPOA / POA_before| ≤ 1%',
+        xy=(0.02, 0.02), xycoords='axes fraction',
+        fontsize=9, color='gray',
+        va='bottom',
+    )
 
     if output_path is None:
         output_path = str(iv_dir / f'iv-plot_{pact_id}_{yearmonth}.png')
