@@ -354,22 +354,22 @@ async def update_ivs(ctx: Context, target: str, year: int, month: int, upload_s3
 
 
 @mcp.tool()
-def plot_ivs(pact_id: str, year: int, month: int, output_path: str = None) -> str:
+def plot_ivs(pact_id: str, year: int, month: int, output_path: str = None, poa_filter_pct: float = 1.0) -> str:
     """Plot IV curves for a module/month from the monthly IV CSV in Box Sync.
 
-    Generates a two-panel figure:
-      - Left: all IV curves that pass the irradiance stability filter (POA variation ≤ 1%)
-      - Right: scatter plot of irradiance vs IV line length for the same curves
+    Plots all IV curves that pass an irradiance stability filter (POA variation ≤ poa_filter_pct%).
 
     Args:
         pact_id: PACT module ID, e.g. P-0138-01
         year: Four-digit year
         month: Month number (1-12)
         output_path: Where to save the PNG (default: iv_curves directory alongside the CSV)
+        poa_filter_pct: Max allowed POA variation (%) between before/after readings (default 1.0)
     """
     with _capture_stdout() as buf:
         saved_path = ingest.plot_iv_month(
-            cfg, pact_id=pact_id, year=year, month=month, output_path=output_path
+            cfg, pact_id=pact_id, year=year, month=month,
+            output_path=output_path, poa_filter_pct=poa_filter_pct,
         )
     output = buf.getvalue().strip()
     return f'{output}\n{saved_path}'.strip() if output else saved_path

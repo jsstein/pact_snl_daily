@@ -1409,13 +1409,11 @@ def update_ivs_batch(cfg, batch, year, month, upload_s3=True, verbose=True):
         print(f'\nBatch {batch_prefix}: all modules completed successfully.')
 
 
-def plot_iv_month(cfg, pact_id, year, month, output_path=None):
-    """Generate a two-panel IV-curve figure for a module/month.
+def plot_iv_month(cfg, pact_id, year, month, output_path=None, poa_filter_pct=1.0):
+    """Generate an IV-curve figure for a module/month.
 
     Reads the monthly IV CSV from the iv_curves directory, applies an
-    irradiance stability filter (POA variation ≤ 1%), and produces:
-      - Left panel: all filtered IV curves
-      - Right panel: scatter of irradiance vs IV line length
+    irradiance stability filter, and plots all curves that pass.
 
     Parameters
     ----------
@@ -1429,6 +1427,9 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None):
         Month number (1–12).
     output_path : str or None
         Where to save the PNG. Defaults to iv_curves directory alongside the CSV.
+    poa_filter_pct : float
+        Maximum allowed POA variation (%) between before/after measurements.
+        Curves exceeding this threshold are excluded. Default 1.0.
 
     Returns
     -------
@@ -1454,12 +1455,12 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None):
 
     df = pd.read_csv(csv_path, index_col='date_time')
 
-    # Irradiance stability filter: POA variation <= 1%
+    # Irradiance stability filter
     fil = (
         np.abs(
             (df['poa_global_before'] - df['poa_global_after'])
             / df['poa_global_before'] * 100
-        ) <= 1
+        ) <= poa_filter_pct
     )
     df_fil = df[fil]
     n_total = len(df)
@@ -1483,7 +1484,7 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None):
     ax1.set_ylabel('Current (A)')
     ax1.set_xlim(left=0)
     ax1.annotate(
-        'Filter: |ΔPOA / POA_before| ≤ 1%',
+        f'Filter: |ΔPOA / POA_before| ≤ {poa_filter_pct:g}%',
         xy=(0.02, 0.02), xycoords='axes fraction',
         fontsize=9, color='gray',
         va='bottom',
