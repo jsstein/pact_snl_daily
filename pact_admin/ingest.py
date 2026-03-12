@@ -1409,7 +1409,7 @@ def update_ivs_batch(cfg, batch, year, month, upload_s3=True, verbose=True):
         print(f'\nBatch {batch_prefix}: all modules completed successfully.')
 
 
-def plot_iv_month(cfg, pact_id, year, month, output_path=None, poa_filter_pct=1.0):
+def plot_iv_month(cfg, pact_id, year, month, output_path=None, max_poa_variation_pct=1.0):
     """Generate an IV-curve figure for a module/month.
 
     Reads the monthly IV CSV from the iv_curves directory, applies an
@@ -1427,9 +1427,10 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None, poa_filter_pct=1.
         Month number (1–12).
     output_path : str or None
         Where to save the PNG. Defaults to iv_curves directory alongside the CSV.
-    poa_filter_pct : float
-        Maximum allowed POA variation (%) between before/after measurements.
-        Curves exceeding this threshold are excluded. Default 1.0.
+    max_poa_variation_pct : float
+        Maximum allowed POA variation between before/after measurements,
+        in percent. E.g. 1.0 means 1%, 10.0 means 10%. Curves exceeding
+        this threshold are excluded. Default 1.0.
 
     Returns
     -------
@@ -1460,7 +1461,7 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None, poa_filter_pct=1.
         np.abs(
             (df['poa_global_before'] - df['poa_global_after'])
             / df['poa_global_before'] * 100
-        ) <= poa_filter_pct
+        ) <= max_poa_variation_pct
     )
     df_fil = df[fil]
     n_total = len(df)
@@ -1484,7 +1485,7 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None, poa_filter_pct=1.
     ax1.set_ylabel('Current (A)')
     ax1.set_xlim(left=0)
     ax1.annotate(
-        f'Filter: |ΔPOA / POA_before| ≤ {poa_filter_pct:g}%',
+        f'Filter: |ΔPOA / POA_before| ≤ {max_poa_variation_pct:g}%',
         xy=(0.02, 0.02), xycoords='axes fraction',
         fontsize=9, color='gray',
         va='bottom',
