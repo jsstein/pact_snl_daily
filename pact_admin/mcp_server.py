@@ -93,6 +93,12 @@ def add_modules_bulk(
     start_date: str,
     site: str,
     notes: str = "",
+    add_to_db25: bool = False,
+    db25_env: str = "DV",
+    module_model_id: int = None,
+    source: str = None,
+    module_owner: str = None,
+    date_received: str = None,
 ) -> str:
     """Add a consecutive range of modules that share all parameters except pact_id and psel_id.
 
@@ -110,6 +116,12 @@ def add_modules_bulk(
         start_date: Outdoor deployment start date (YYYY-MM-DD)
         site: Site key — must be 'SNL' or 'SNL_fixed-tilt'
         notes: Optional notes applied to all modules
+        add_to_db25: If True, also insert each module into db25_modules (default False)
+        db25_env: db25 environment to insert into — 'DV' or 'PR' (default 'DV')
+        module_model_id: Foreign key to db25_module_models (optional)
+        source: Source/origin of the modules (optional)
+        module_owner: Owner of the modules (optional)
+        date_received: Date modules were received, YYYY-MM-DD (optional, defaults to start_date)
     """
     with _capture_stdout() as buf:
         registry.add_modules_bulk(
@@ -122,6 +134,12 @@ def add_modules_bulk(
             start_date=start_date,
             site=site,
             notes=notes,
+            add_to_db25=add_to_db25,
+            db25_env=db25_env,
+            module_model_id=module_model_id,
+            source=source,
+            module_owner=module_owner,
+            date_received=date_received,
         )
     return buf.getvalue()
 

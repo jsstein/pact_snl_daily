@@ -351,7 +351,10 @@ def list_modules(cfg, active_only=True):
 
 
 def add_modules_bulk(cfg, pact_id_start, pact_id_end, psel_id_start,
-                     area, module_type, start_date, site, notes=''):
+                     area, module_type, start_date, site, notes='',
+                     add_to_db25=False, db25_env='DV',
+                     module_model_id=None, source=None, module_owner=None,
+                     date_received=None):
     """Add a consecutive range of modules that share all parameters except
     pact_id and psel_id.
 
@@ -366,6 +369,12 @@ def add_modules_bulk(cfg, pact_id_start, pact_id_end, psel_id_start,
     pact_id_end   : str, e.g. 'P-0150-10'
     psel_id_start : int
     area, module_type, start_date, site, notes : same as add_module
+    add_to_db25   : bool — if True, also insert each module into db25_modules
+    db25_env      : str — 'DV' or 'PR' (default 'DV')
+    module_model_id : int, optional — FK to db25_module_models
+    source        : str, optional
+    module_owner  : str, optional
+    date_received : str, optional — defaults to start_date
     """
     # Parse prefix and numeric range from pact_id_start / pact_id_end
     prefix_start, _, suffix_start = pact_id_start.rpartition('-')
@@ -387,6 +396,28 @@ def add_modules_bulk(cfg, pact_id_start, pact_id_end, psel_id_start,
             f'pact_id_end ({pact_id_end}) must be >= pact_id_start ({pact_id_start})'
         )
 
+    # --- set up db25 once before the loop ---
+    db25_ready = False
+    if add_to_db25:
+        try:
+            from db25.cli import get_conn_str, resolve_paths, TABLES
+            from db25.functions import (
+                generate_sql_from_json,
+                backup_csv_before_sync,
+                insert_record_with_csv_sync,
+            )
+            csv_path, json_path = resolve_paths(None, None)
+            json_file = os.path.join(json_path, 'modules.json')
+            if not os.path.exists(json_file):
+                print(f'WARNING: modules.json not found at {json_file} — skipping db25 inserts')
+            else:
+                _, type_dict = generate_sql_from_json(json_file)
+                conn_str = get_conn_str(db25_env)
+                backup_csv_before_sync(csv_path, 'modules')
+                db25_ready = True
+        except ImportError as exc:
+            print(f'WARNING: Could not import db25 — skipping db25 inserts: {exc}')
+
     width = len(suffix_start)  # preserve zero-padding width
     results = []
     for offset, n in enumerate(range(n_start, n_end + 1)):
@@ -396,7 +427,31 @@ def add_modules_bulk(cfg, pact_id_start, pact_id_end, psel_id_start,
             add_module(cfg, pact_id=pact_id, psel_id=psel_id, area=area,
                        module_type=module_type, start_date=start_date,
                        site=site, notes=notes)
-            results.append(f'✓ {pact_id} (psel_id={psel_id})')
+            result_line = f'✓ {pact_id} (psel_id={psel_id})'
+
+            if db25_ready:
+                record = {'psel_id': psel_id, 'module_alt_id': pact_id}
+                if module_model_id is not None:
+                    record['module_model_id'] = module_model_id
+                if source is not None:
+                    record['source'] = source
+                if module_owner is not None:
+                    record['module_owner'] = module_owner
+                record['date_received'] = date_received or start_date
+                db25_result = insert_record_with_csv_sync(
+                    table_name='modules',
+                    record_dict=record,
+                    conn_str=conn_str,
+                    csv_path=csv_path,
+                    type_dict=type_dict,
+                    auto_increment_col=TABLES['modules'],
+                )
+                if db25_result['success']:
+                    result_line += f' | db25 module_id={db25_result["new_id"]}'
+                else:
+                    result_line += f' | db25 ERROR: {db25_result["message"]}'
+
+            results.append(result_line)
         except Exception as exc:
             results.append(f'✗ {pact_id}: {exc}')
 
