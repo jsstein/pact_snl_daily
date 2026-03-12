@@ -350,6 +350,57 @@ def list_modules(cfg, active_only=True):
     return df
 
 
+def _get_or_create_module_model(batch_name, conn_str, csv_path, json_path,
+                                TABLES, generate_sql_from_json,
+                                insert_record_with_csv_sync):
+    """Return the module_model_id for batch_name from db25_module_models.
+
+    If a row with module_model_name = batch_name already exists, return its id.
+    Otherwise insert a new row with module_model_name = batch_name and return
+    the new id.
+    """
+    import pyodbc
+
+    # Look up existing record
+    with pyodbc.connect(conn_str) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT module_model_id FROM db25_module_models '
+            'WHERE module_model_name = ?',
+            batch_name,
+        )
+        row = cursor.fetchone()
+
+    if row:
+        module_model_id = row[0]
+        print(f'db25_module_models: found {batch_name!r} → module_model_id={module_model_id}')
+        return module_model_id
+
+    # Insert new record
+    mm_json_file = os.path.join(json_path, 'module_models.json')
+    if not os.path.exists(mm_json_file):
+        print(f'WARNING: module_models.json not found at {mm_json_file} — '
+              f'module_model_id will not be set')
+        return None
+
+    _, mm_type_dict = generate_sql_from_json(mm_json_file)
+    result = insert_record_with_csv_sync(
+        table_name='module_models',
+        record_dict={'module_model_name': batch_name},
+        conn_str=conn_str,
+        csv_path=csv_path,
+        type_dict=mm_type_dict,
+        auto_increment_col=TABLES['module_models'],
+    )
+    if result['success']:
+        module_model_id = result['new_id']
+        print(f'db25_module_models: created {batch_name!r} → module_model_id={module_model_id}')
+        return module_model_id
+    else:
+        print(f'WARNING: Failed to create module_model for {batch_name!r}: {result["message"]}')
+        return None
+
+
 def add_modules_bulk(cfg, pact_id_start, pact_id_end, psel_id_start,
                      area, module_type, start_date, site, notes='',
                      add_to_db25=False, db25_env='DV',
@@ -414,6 +465,15 @@ def add_modules_bulk(cfg, pact_id_start, pact_id_end, psel_id_start,
                 _, type_dict = generate_sql_from_json(json_file)
                 conn_str = get_conn_str(db25_env)
                 backup_csv_before_sync(csv_path, 'modules')
+
+                # Resolve module_model_id from batch name if not explicitly provided
+                batch_name = prefix_start  # e.g. 'P-0150'
+                if module_model_id is None:
+                    module_model_id = _get_or_create_module_model(
+                        batch_name, conn_str, csv_path, json_path, TABLES,
+                        generate_sql_from_json, insert_record_with_csv_sync,
+                    )
+
                 db25_ready = True
         except ImportError as exc:
             print(f'WARNING: Could not import db25 — skipping db25 inserts: {exc}')
