@@ -99,6 +99,43 @@ def delete_module(pact_id: str, purge: bool = False) -> str:
 
 
 @mcp.tool()
+def update_module(
+    pact_id: str,
+    area: float = None,
+    module_type: str = None,
+    psel_id: int = None,
+    site: str = None,
+    start_date: str = None,
+    notes: str = None,
+) -> str:
+    """Update one or more fields on an existing module.
+
+    Only the fields you supply are changed; omitted fields are left as-is.
+
+    Args:
+        pact_id: PACT module ID to update, e.g. P-0150-01
+        area: New module area in m²
+        module_type: New module type, e.g. MHP or OPV
+        psel_id: New PSEL (database) integer ID
+        site: New site — must be 'SNL' or 'SNL_fixed-tilt'
+        start_date: New outdoor deployment start date (YYYY-MM-DD)
+        notes: New notes
+    """
+    with _capture_stdout() as buf:
+        registry.update_module(
+            cfg,
+            pact_id=pact_id,
+            area=area,
+            module_type=module_type,
+            psel_id=psel_id,
+            site=site,
+            start_date=start_date,
+            notes=notes,
+        )
+    return buf.getvalue()
+
+
+@mcp.tool()
 def retire_module(pact_id: str, end_date: str) -> str:
     """Mark a module as inactive (Active=N) in the setup CSV.
 

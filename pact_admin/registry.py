@@ -350,6 +350,91 @@ def list_modules(cfg, active_only=True):
     return df
 
 
+def update_module(cfg, pact_id, area=None, module_type=None, psel_id=None,
+                  site=None, start_date=None, notes=None):
+    """Update one or more fields on an existing module in pact_modules (DB + CSV backup).
+
+    Only the fields explicitly passed (not None) are changed.
+
+    Parameters
+    ----------
+    pact_id : str, e.g. 'P-0150-01'
+    area : float, optional
+    module_type : str, optional
+    psel_id : int, optional
+    site : str, optional — must be 'SNL' or 'SNL_fixed-tilt'
+    start_date : str, optional — parseable date (YYYY-MM-DD)
+    notes : str, optional
+    """
+    updates = {}
+    if area        is not None: updates['area']        = float(area)
+    if module_type is not None: updates['module_type'] = module_type
+    if psel_id     is not None: updates['psel_id']     = int(psel_id)
+    if notes       is not None: updates['notes']       = notes
+    if start_date  is not None: updates['start_date']  = _parse_date(start_date)
+    if site        is not None:
+        if site not in _VALID_SITES:
+            raise ValueError(
+                f"Invalid site {site!r}. Must be one of: {', '.join(_VALID_SITES)}"
+            )
+        updates['site'] = site
+
+    if not updates:
+        raise ValueError('No fields to update — supply at least one keyword argument.')
+
+    # Verify the module exists
+    df = read_modules(cfg)
+    if pact_id not in df['PACT_id'].values:
+        raise ValueError(f'{pact_id} not found in pact_modules')
+
+    # --- DB update ---
+    set_clause = ', '.join(f'{col} = :{col}' for col in updates)
+    params = dict(updates, pact_id=pact_id)
+    engine = _make_engine(cfg, write=True)
+    with engine.begin() as conn:
+        conn.execute(
+            text(f'UPDATE dbo.pact_modules SET {set_clause} WHERE pact_id = :pact_id'),
+            params,
+        )
+    changed = ', '.join(
+        f'{k}={v}' for k, v in updates.items()
+    )
+    print(f'{pact_id}: Updated in pact_modules ({changed})')
+
+    # --- CSV backup ---
+    col_map = {
+        'area': 'Area', 'module_type': 'Type', 'psel_id': 'PSEL_id',
+        'notes': 'Notes', 'site': 'Site', 'start_date': 'Start_date',
+    }
+    mask = df['PACT_id'] == pact_id
+    for db_col, value in updates.items():
+        csv_col = col_map[db_col]
+        df.loc[mask, csv_col] = (
+            value.isoformat() if hasattr(value, 'isoformat') else str(value)
+        )
+    write_modules(df, cfg)
+    print(f'{pact_id}: Updated in CSV backup')
+
+    # --- sync area/type in module-metadata.json if changed ---
+    if 'area' in updates or 'module_type' in updates:
+        site_key = df.loc[mask, 'Site'].iloc[0] or 'SNL'
+        batch = pact_id[:6]
+        meta_path = get_module_metadata_path(cfg, batch, site_key)
+        if meta_path.exists():
+            with open(meta_path) as f:
+                data = json.load(f)
+            for mod in data:
+                if mod['module_id'] == pact_id:
+                    if 'area' in updates:
+                        mod['module_area'] = updates['area']
+                    if 'module_type' in updates:
+                        mod['module_type'] = updates['module_type']
+                    break
+            with open(meta_path, 'w') as f:
+                json.dump(data, f, indent=4)
+            print(f'{pact_id}: Updated in module-metadata.json')
+
+
 def create_directory_tree(cfg, batch, site_key):
     """Create the standard directory tree for a batch under base_path."""
     batch_dir = get_batch_dir(cfg, batch, site_key)
