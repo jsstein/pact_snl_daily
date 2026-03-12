@@ -278,7 +278,7 @@ def retire_module(cfg, pact_id, end_date):
     print(f'{pact_id}: Updated in CSV backup')
 
 
-def delete_module(cfg, pact_id, purge=False):
+def delete_module(cfg, pact_id, purge=False, db25_env=None):
     """Permanently remove a module from pact_modules (DB + CSV backup) and
     module-metadata.json.
 
@@ -288,6 +288,9 @@ def delete_module(cfg, pact_id, purge=False):
     purge : bool
         If True and no modules remain in the batch after deletion, remove the
         entire batch directory tree from Box Sync.  Default False.
+    db25_env : str or None
+        If 'DV' or 'PR', also delete the matching row from db25_modules
+        (matched on module_alt_id = pact_id).  Default None (skip).
     """
     import shutil
 
@@ -299,7 +302,7 @@ def delete_module(cfg, pact_id, purge=False):
     site_key = df.loc[mask, 'Site'].iloc[0] or 'SNL'
     batch = pact_id[:6]
 
-    # --- DB delete ---
+    # --- pact_modules DB delete ---
     engine = _make_engine(cfg, write=True)
     with engine.begin() as conn:
         conn.execute(
@@ -307,6 +310,16 @@ def delete_module(cfg, pact_id, purge=False):
             {'pact_id': pact_id},
         )
     print(f'{pact_id}: Removed from pact_modules')
+
+    # --- pact_censored_days: remove orphaned censor records ---
+    with engine.begin() as conn:
+        result = conn.execute(
+            text('DELETE FROM dbo.pact_censored_days WHERE pact_id = :pact_id'),
+            {'pact_id': pact_id},
+        )
+        count = result.rowcount
+    if count:
+        print(f'{pact_id}: Removed {count} censor record(s) from pact_censored_days')
 
     # --- CSV backup ---
     write_modules(df[~mask].reset_index(drop=True), cfg)
@@ -326,6 +339,26 @@ def delete_module(cfg, pact_id, purge=False):
             print(f'{pact_id}: Not found in {meta_path}')
     else:
         print(f'{pact_id}: module-metadata.json not found at {meta_path}')
+
+    # --- db25_modules delete (optional) ---
+    if db25_env is not None:
+        try:
+            from db25.cli import get_conn_str
+            import pyodbc
+            conn_str = get_conn_str(db25_env)
+            with pyodbc.connect(conn_str) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'DELETE FROM db25_modules WHERE module_alt_id = ?', pact_id
+                )
+                count = cursor.rowcount
+                conn.commit()
+            if count:
+                print(f'{pact_id}: Removed {count} record(s) from db25_modules ({db25_env})')
+            else:
+                print(f'{pact_id}: Not found in db25_modules ({db25_env})')
+        except ImportError as exc:
+            print(f'{pact_id}: WARNING — could not import db25: {exc}')
 
     # --- optional directory purge ---
     if purge:

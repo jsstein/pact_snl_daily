@@ -145,19 +145,22 @@ def add_modules_bulk(
 
 
 @mcp.tool()
-def delete_module(pact_id: str, purge: bool = False) -> str:
-    """Permanently delete a module from the setup CSV and module-metadata.json.
+def delete_module(pact_id: str, purge: bool = False, db25_env: str = None) -> str:
+    """Permanently delete a module from pact_modules, pact_censored_days, and module-metadata.json.
 
     Use this only for modules added by mistake or with incorrect information.
+    Orphaned censor records are always removed. Optionally also removes the
+    matching row from db25_modules.
 
     Args:
         pact_id: PACT module ID to delete, e.g. P-0150-01
         purge: If True and no other modules remain in the batch, also delete
                the entire batch directory tree from Box Sync (including all
                data files). Default False.
+        db25_env: If 'DV' or 'PR', also delete from db25_modules. Default None (skip).
     """
     with _capture_stdout() as buf:
-        registry.delete_module(cfg, pact_id=pact_id, purge=purge)
+        registry.delete_module(cfg, pact_id=pact_id, purge=purge, db25_env=db25_env)
     return buf.getvalue()
 
 
