@@ -1214,7 +1214,7 @@ def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
     from the daily zip (YYYYMMDD.zip), and joins them with met and MPPT data
     from the database.  Output is written to::
 
-        {base_path}/{batch}-XX/Outdoor_SNL/data/iv_curves/
+        {base_path}/{batch}-XX/Outdoor_SNL/data/iv-data/
             iv-data_{pact_id}_{YYYY-MM}.csv
 
     Parameters
@@ -1332,7 +1332,7 @@ def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
     )
 
     out_dir = (
-        get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'data' / 'iv_curves'
+        get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'data' / 'iv-data'
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f'iv-data_{pact_id}_{yearmonth}.csv'
@@ -1349,7 +1349,7 @@ def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
                 print('  boto3 not available; skipping S3 upload.')
         else:
             s3_key = (
-                f'{batch}-XX/{outdoor_dir}/data/iv_curves/'
+                f'{batch}-XX/{outdoor_dir}/data/iv-data/'
                 f'iv-data_{pact_id}_{yearmonth}.csv'
             )
             try:
