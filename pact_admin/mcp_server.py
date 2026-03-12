@@ -193,82 +193,43 @@ def aws_sso_login() -> str:
 # ---- Ingestion tools -------------------------------------------------------
 
 @mcp.tool()
-def update_module(pact_id: str, year: int, month: int, upload_s3: bool = True) -> str:
-    """Fetch one month of DB data for a module, write point-data CSV and
-    regenerate the bar chart. Optionally uploads both files to S3.
+async def update(ctx: Context, target: str, year: int, month: int, upload_s3: bool = True) -> str:
+    """Fetch one month of DB data and regenerate charts for one module, a batch, or all active modules.
+
+    Use this tool when asked to update, run, process, fetch, refresh, or ingest monthly
+    point-data or bar charts. Examples: "update P-0042-04 for March", "run batch P-0042",
+    "process all modules for last month".
 
     Args:
-        pact_id: PACT module ID, e.g. P-0042-04
+        target: Module ID (e.g. P-0042-04), batch prefix (e.g. P-0042), or 'all'
         year: Four-digit year
         month: Month number (1-12)
         upload_s3: Whether to upload files to S3 (default True)
     """
-    with _capture_stdout() as buf:
-        ingest.update_module_month(
-            cfg, pact_id=pact_id, year=year, month=month, upload_s3=upload_s3
-        )
-    return buf.getvalue()
-
-
-@mcp.tool()
-async def update_batch(ctx: Context, batch: str, year: int, month: int, upload_s3: bool = True) -> str:
-    """Fetch one month of DB data for all active modules in a batch.
-
-    Args:
-        batch: Batch prefix, e.g. P-0042
-        year: Four-digit year
-        month: Month number (1-12)
-        upload_s3: Whether to upload files to S3 (default True)
-    """
-    batch_prefix = batch[:6]
-    modules_df = registry.read_modules(cfg)
-    active = modules_df[
-        (modules_df['Active'] == 'Y') &
-        (modules_df['PACT_id'].str.startswith(batch_prefix))
-    ]
-
-    if active.empty:
-        return f'No active modules found for batch {batch_prefix}.'
-
-    total = len(active)
-    results = []
-    await ctx.info(f'Updating {total} module(s) in {batch_prefix} for {year}-{month:02d}')
-
-    for i, (_, row) in enumerate(active.iterrows()):
-        pact_id = row['PACT_id']
-        await ctx.info(f'[{i+1}/{total}] {pact_id} — starting...')
+    if target.count('-') >= 2:  # single module, e.g. P-0042-04
         with _capture_stdout() as buf:
-            try:
-                ingest.update_module_month(cfg, pact_id=pact_id, year=year,
-                                           month=month, upload_s3=upload_s3)
-                results.append(f'✓ {pact_id}')
-            except Exception as exc:
-                results.append(f'✗ {pact_id}: {exc}')
-        out = buf.getvalue().strip()
-        if out:
-            await ctx.info(out)
+            ingest.update_module_month(cfg, pact_id=target, year=year, month=month, upload_s3=upload_s3)
+        return buf.getvalue()
 
-    return '\n'.join(results)
-
-
-@mcp.tool()
-async def update_all(ctx: Context, year: int, month: int, upload_s3: bool = True) -> str:
-    """Fetch one month of DB data for all active modules.
-
-    Args:
-        year: Four-digit year
-        month: Month number (1-12)
-        upload_s3: Whether to upload files to S3 (default True)
-    """
-    modules_df = registry.read_modules(cfg)
-    active = modules_df[modules_df['Active'] == 'Y']
+    if target == 'all':
+        modules_df = registry.read_modules(cfg)
+        active = modules_df[modules_df['Active'] == 'Y']
+        label = 'all active'
+    else:  # batch prefix, e.g. P-0042
+        batch_prefix = target[:6]
+        modules_df = registry.read_modules(cfg)
+        active = modules_df[
+            (modules_df['Active'] == 'Y') &
+            (modules_df['PACT_id'].str.startswith(batch_prefix))
+        ]
+        label = f'batch {batch_prefix}'
 
     if active.empty:
-        return 'No active modules found.'
+        return f'No active modules found for {label}.'
 
     total = len(active)
     results = []
-    await ctx.info(f'Updating {total} active module(s) for {year}-{month:02d}')
+    await ctx.info(f'Updating {total} module(s) for {label} — {year}-{month:02d}')
 
     for i, (_, row) in enumerate(active.iterrows()):
         pact_id = row['PACT_id']
@@ -337,88 +298,43 @@ def module_summary(active_only: bool = False, output_path: str = None) -> str:
 
 
 @mcp.tool()
-def update_ivs(pact_id: str, year: int, month: int, upload_s3: bool = True) -> str:
-    """Process all IV curves for a module/month and write a monthly CSV.
+async def update_ivs(ctx: Context, target: str, year: int, month: int, upload_s3: bool = True) -> str:
+    """Process IV curves for one module, a batch, or all active modules and write monthly CSVs.
 
-    Opens the SNL network drive, extracts IV files from each day's zip archive
-    (YYYYMMDD.zip), joins them with met and MPPT data from the database, and
-    writes the result to:
-        {base_path}/{batch}-XX/Outdoor_SNL/data/iv_curves/
-            iv-data_{pact_id}_{YYYY-MM}.csv
+    Use this tool when asked to process, run, fetch, ingest, or refresh IV curve data.
+    Examples: "process IVs for P-0138-01", "run IV curves for batch P-0042",
+    "ingest all IV data for January".
 
     Args:
-        pact_id: PACT module ID, e.g. P-0138-01
-        year: Four-digit year
-        month: Month number (1-12)
-        upload_s3: Upload the CSV to S3 (default True)
-    """
-    with _capture_stdout() as buf:
-        ingest.update_ivs(cfg, pact_id=pact_id, year=year, month=month,
-                          upload_s3=upload_s3)
-    return buf.getvalue()
-
-
-@mcp.tool()
-async def update_ivs_batch(ctx: Context, batch: str, year: int, month: int,
-                           upload_s3: bool = True) -> str:
-    """Process IV curves for all active modules in a batch.
-
-    Args:
-        batch: Batch prefix, e.g. P-0042 (or P-0042-XX)
+        target: Module ID (e.g. P-0138-01), batch prefix (e.g. P-0042), or 'all'
         year: Four-digit year
         month: Month number (1-12)
         upload_s3: Upload each CSV to S3 (default True)
     """
-    batch_prefix = batch[:6]
-    modules_df = registry.read_modules(cfg)
-    active = modules_df[
-        (modules_df['Active'] == 'Y') &
-        (modules_df['PACT_id'].str.startswith(batch_prefix))
-    ]
-
-    if active.empty:
-        return f'No active modules found for batch {batch_prefix}.'
-
-    total = len(active)
-    results = []
-    await ctx.info(f'Processing IV curves for {total} module(s) in {batch_prefix} — {year}-{month:02d}')
-
-    for i, (_, row) in enumerate(active.iterrows()):
-        pact_id = row['PACT_id']
-        await ctx.info(f'[{i+1}/{total}] {pact_id} — starting...')
+    if target.count('-') >= 2:  # single module, e.g. P-0138-01
         with _capture_stdout() as buf:
-            try:
-                ingest.update_ivs(cfg, pact_id=pact_id, year=year, month=month,
-                                  upload_s3=upload_s3)
-                results.append(f'✓ {pact_id}')
-            except Exception as exc:
-                results.append(f'✗ {pact_id}: {exc}')
-        out = buf.getvalue().strip()
-        if out:
-            await ctx.info(out)
+            ingest.update_ivs(cfg, pact_id=target, year=year, month=month, upload_s3=upload_s3)
+        return buf.getvalue()
 
-    return '\n'.join(results)
-
-
-@mcp.tool()
-async def update_ivs_all(ctx: Context, year: int, month: int,
-                         upload_s3: bool = True) -> str:
-    """Process IV curves for all active modules.
-
-    Args:
-        year: Four-digit year
-        month: Month number (1-12)
-        upload_s3: Upload each CSV to S3 (default True)
-    """
-    modules_df = registry.read_modules(cfg)
-    active = modules_df[modules_df['Active'] == 'Y']
+    if target == 'all':
+        modules_df = registry.read_modules(cfg)
+        active = modules_df[modules_df['Active'] == 'Y']
+        label = 'all active'
+    else:  # batch prefix, e.g. P-0042
+        batch_prefix = target[:6]
+        modules_df = registry.read_modules(cfg)
+        active = modules_df[
+            (modules_df['Active'] == 'Y') &
+            (modules_df['PACT_id'].str.startswith(batch_prefix))
+        ]
+        label = f'batch {batch_prefix}'
 
     if active.empty:
-        return 'No active modules found.'
+        return f'No active modules found for {label}.'
 
     total = len(active)
     results = []
-    await ctx.info(f'Processing IV curves for {total} active module(s) — {year}-{month:02d}')
+    await ctx.info(f'Processing IV curves for {total} module(s) for {label} — {year}-{month:02d}')
 
     for i, (_, row) in enumerate(active.iterrows()):
         pact_id = row['PACT_id']
