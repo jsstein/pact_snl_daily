@@ -1409,6 +1409,104 @@ def update_ivs_batch(cfg, batch, year, month, upload_s3=True, verbose=True):
         print(f'\nBatch {batch_prefix}: all modules completed successfully.')
 
 
+def plot_iv_month(cfg, pact_id, year, month, output_path=None):
+    """Generate a two-panel IV-curve figure for a module/month.
+
+    Reads the monthly IV CSV from the iv_curves directory, applies an
+    irradiance stability filter (POA variation ≤ 1%), and produces:
+      - Left panel: all filtered IV curves
+      - Right panel: scatter of irradiance vs IV line length
+
+    Parameters
+    ----------
+    cfg : dict
+        Loaded pact_config.json.
+    pact_id : str
+        PACT module ID, e.g. 'P-0138-01'.
+    year : int
+        Four-digit year.
+    month : int
+        Month number (1–12).
+    output_path : str or None
+        Where to save the PNG. Defaults to iv_curves directory alongside the CSV.
+
+    Returns
+    -------
+    str
+        Path to the saved PNG file.
+    """
+    import ast
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    from . import config as _config
+
+    yearmonth = f'{year}-{month:02d}'
+    batch = pact_id[:6]
+    site_key = registry._lookup_site_key(cfg, pact_id)
+    outdoor_dir = cfg['sites'][site_key]['outdoor_directory']
+    iv_dir = _config.get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'data' / 'iv_curves'
+    csv_path = iv_dir / f'iv-data_{pact_id}_{yearmonth}.csv'
+
+    if not csv_path.exists():
+        raise FileNotFoundError(f'IV data file not found: {csv_path}')
+
+    df = pd.read_csv(csv_path, index_col='date_time')
+
+    # Irradiance stability filter: POA variation <= 1%
+    fil = (
+        np.abs(
+            (df['poa_global_before'] - df['poa_global_after'])
+            / df['poa_global_before'] * 100
+        ) <= 1
+    )
+    df_fil = df[fil]
+    n_total = len(df)
+    n_kept = fil.sum()
+
+    # Parse stringified voltage/current arrays
+    def _to_array(x):
+        return np.array(ast.literal_eval(x.strip()))
+
+    v = df_fil['voltage_points'].apply(_to_array)
+    i = df_fil['current_points'].apply(_to_array)
+
+    # Line-length helper
+    def _line_length(x_arr, y_arr):
+        dx = np.diff(x_arr)
+        dy = np.diff(y_arr)
+        return float(np.sum(np.sqrt(dx**2 + dy**2)))
+
+    # Two-panel figure
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle(
+        f'{pact_id}  —  IV curves  {yearmonth}  ({n_kept}/{n_total} curves after filter)'
+    )
+
+    for idx in v.index:
+        ax1.plot(v.loc[idx], i.loc[idx], alpha=0.6)
+    ax1.set_xlabel('Voltage (V)')
+    ax1.set_ylabel('Current (A)')
+    ax1.set_xlim(left=0)
+
+    for idx in v.index:
+        ll = _line_length(v.loc[idx], i.loc[idx])
+        irr = df_fil.loc[idx, 'poa_global_before']
+        ax2.scatter(irr, ll, c='k', s=10)
+    ax2.set_xlabel('Irradiance (W/m²)')
+    ax2.set_ylabel('IV Line Length')
+
+    if output_path is None:
+        output_path = str(iv_dir / f'iv-plot_{pact_id}_{yearmonth}.png')
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f'Saved IV plot → {output_path}')
+    return output_path
+
+
 def update_ivs_all(cfg, year, month, upload_s3=True, verbose=True):
     """Run update_ivs for every active module in the setup CSV.
 
