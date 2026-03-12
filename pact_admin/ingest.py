@@ -1207,7 +1207,8 @@ def _process_iv_file(filepath, date_str, df_met, df_air, df_mppt, pad_cfg):
 # Public: monthly IV-curve aggregation
 # ---------------------------------------------------------------------------
 
-def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
+def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True,
+               _network_path=None):
     """Process all IV curves for a module/month and write a monthly CSV.
 
     For each day of the month, opens the SNL network drive, extracts IV files
@@ -1230,6 +1231,10 @@ def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
     upload_s3 : bool
         If True (default), upload the CSV to S3 after writing locally.
     verbose : bool
+    _network_path : Path or None
+        If provided, use this already-mounted drive path and skip
+        mount/unmount.  Used by update_ivs_batch/update_ivs_all to
+        mount the drive only once across all modules.
     """
     yearmonth = f'{year}-{month:02d}'
     last_day = calendar.monthrange(year, month)[1]
@@ -1278,8 +1283,10 @@ def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
         print('  Querying air temperature...')
     df_air = _query_air_temp(engine, start_dt_str, end_dt_str, tz)
 
-    # --- mount drive once, iterate over days, then unmount ---
-    network_path = _mount_iv_drive(cfg, verbose=verbose)
+    # --- mount drive (skip if caller already mounted it) ---
+    _owns_mount = _network_path is None
+    if _owns_mount:
+        _network_path = _mount_iv_drive(cfg, verbose=verbose)
 
     rows_list = []
     try:
@@ -1292,7 +1299,7 @@ def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
 
             try:
                 iv_files = _extract_iv_files_for_day(
-                    network_path, pact_id, date_iso, verbose=False
+                    _network_path, pact_id, date_iso, verbose=False
                 )
             except FileNotFoundError:
                 if verbose:
@@ -1317,9 +1324,10 @@ def update_ivs(cfg, pact_id, year, month, upload_s3=True, verbose=True):
             if verbose:
                 print(f'{day_count} curve(s)')
     finally:
-        if verbose:
-            print('  Closing network drive...')
-        _unmount_iv_drive(network_path, verbose=verbose)
+        if _owns_mount:
+            if verbose:
+                print('  Closing network drive...')
+            _unmount_iv_drive(_network_path, verbose=verbose)
 
     if not rows_list:
         print(f'  {pact_id}: no IV curves found for {yearmonth}.')
@@ -1391,15 +1399,22 @@ def update_ivs_batch(cfg, batch, year, month, upload_s3=True, verbose=True):
     print(f'Batch {batch_prefix}: {len(active)} active module(s) — '
           f'{", ".join(active["PACT_id"].tolist())}')
 
+    network_path = _mount_iv_drive(cfg, verbose=verbose)
     errors = []
-    for _, row in active.iterrows():
-        pact_id = row['PACT_id']
-        try:
-            update_ivs(cfg, pact_id, year, month,
-                       upload_s3=upload_s3, verbose=verbose)
-        except Exception as exc:
-            print(f'[{pact_id}] ERROR: {exc}')
-            errors.append((pact_id, exc))
+    try:
+        for _, row in active.iterrows():
+            pact_id = row['PACT_id']
+            try:
+                update_ivs(cfg, pact_id, year, month,
+                           upload_s3=upload_s3, verbose=verbose,
+                           _network_path=network_path)
+            except Exception as exc:
+                print(f'[{pact_id}] ERROR: {exc}')
+                errors.append((pact_id, exc))
+    finally:
+        if verbose:
+            print('  Closing network drive...')
+        _unmount_iv_drive(network_path, verbose=verbose)
 
     if errors:
         print(f'\n{len(errors)} module(s) failed:')
@@ -1524,15 +1539,22 @@ def update_ivs_all(cfg, year, month, upload_s3=True, verbose=True):
     print(f'Updating IV curves for {len(active)} active module(s) — '
           f'{year}-{month:02d}')
 
+    network_path = _mount_iv_drive(cfg, verbose=verbose)
     errors = []
-    for _, row in active.iterrows():
-        pact_id = row['PACT_id']
-        try:
-            update_ivs(cfg, pact_id, year, month,
-                       upload_s3=upload_s3, verbose=verbose)
-        except Exception as exc:
-            print(f'[{pact_id}] ERROR: {exc}')
-            errors.append((pact_id, exc))
+    try:
+        for _, row in active.iterrows():
+            pact_id = row['PACT_id']
+            try:
+                update_ivs(cfg, pact_id, year, month,
+                           upload_s3=upload_s3, verbose=verbose,
+                           _network_path=network_path)
+            except Exception as exc:
+                print(f'[{pact_id}] ERROR: {exc}')
+                errors.append((pact_id, exc))
+    finally:
+        if verbose:
+            print('  Closing network drive...')
+        _unmount_iv_drive(network_path, verbose=verbose)
 
     if errors:
         print(f'\n{len(errors)} module(s) failed:')
