@@ -18,13 +18,13 @@ from sqlalchemy import create_engine, text
 
 DB_SERVER   = r'DB03SNLNT\PR'
 DB_NAME     = 'PVGrid'
-DB_USERNAME = 'PVGridUser'
+DB_USERNAME = 'PVGridMaster'
 
 
 def make_engine():
-    password = os.getenv('DB_PASSWORD_PRuser')
+    password = os.getenv('DB_PASSWORD_PRmaster')
     if not password:
-        sys.exit('ERROR: DB_PASSWORD_PRuser environment variable is not set.')
+        sys.exit('ERROR: DB_PASSWORD_PRmaster environment variable is not set.')
     conn_str = (
         f'mssql+pyodbc://{DB_USERNAME}:{password}@{DB_SERVER}/{DB_NAME}'
         f'?driver=ODBC+Driver+17+for+SQL+Server'
