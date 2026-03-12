@@ -1491,7 +1491,7 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None, poa_filter_pct=1.
     )
 
     if output_path is None:
-        output_path = str(iv_dir / f'iv-plot_{pact_id}_{yearmonth}.png')
+        output_path = str(Path.cwd() / f'iv-plot_{pact_id}_{yearmonth}.png')
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
