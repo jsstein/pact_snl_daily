@@ -1427,7 +1427,7 @@ def update_ivs_batch(cfg, batch, year, month, upload_s3=True, verbose=True):
 def plot_iv_month(cfg, pact_id, year, month, output_path=None, max_poa_variation_pct=1.0):
     """Generate an IV-curve figure for a module/month.
 
-    Reads the monthly IV CSV from the iv_curves directory, applies an
+    Reads the monthly IV CSV from the iv-data directory, applies an
     irradiance stability filter, and plots all curves that pass.
 
     Parameters
@@ -1441,7 +1441,7 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None, max_poa_variation
     month : int
         Month number (1–12).
     output_path : str or None
-        Where to save the PNG. Defaults to iv_curves directory alongside the CSV.
+        Where to save the PNG. Defaults to iv-data directory alongside the CSV.
     max_poa_variation_pct : float
         Maximum allowed POA variation between before/after measurements,
         in percent. E.g. 1.0 means 1%, 10.0 means 10%. Curves exceeding
@@ -1463,7 +1463,7 @@ def plot_iv_month(cfg, pact_id, year, month, output_path=None, max_poa_variation
     batch = pact_id[:6]
     site_key = registry._lookup_site_key(cfg, pact_id)
     outdoor_dir = cfg['sites'][site_key]['outdoor_directory']
-    iv_dir = _config.get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'data' / 'iv_curves'
+    iv_dir = _config.get_base_path(cfg) / f'{batch}-XX' / outdoor_dir / 'data' / 'iv-data'
     csv_path = iv_dir / f'iv-data_{pact_id}_{yearmonth}.csv'
 
     if not csv_path.exists():
