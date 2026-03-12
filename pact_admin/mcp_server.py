@@ -56,7 +56,9 @@ def add_module(
     site: str,
     notes: str = "",
 ) -> str:
-    """Add a new module to the setup CSV and metadata.
+    """Add a new module to the database and metadata.
+
+    site must be one of: 'SNL' or 'SNL_fixed-tilt'.
 
     Args:
         pact_id: PACT module ID, e.g. P-0150-01
@@ -65,7 +67,7 @@ def add_module(
         module_type: Module type string, e.g. MHP or OPV
         start_date: Outdoor deployment start date (YYYY-MM-DD)
         site: Site key — must be 'SNL' or 'SNL_fixed-tilt'
-        notes: Optional notes for the setup CSV
+        notes: Optional notes
     """
     with _capture_stdout() as buf:
         registry.add_module(
