@@ -53,7 +53,7 @@ def add_module(
     area: float,
     module_type: str,
     start_date: str,
-    site: str = "SNL",
+    site: str,
     notes: str = "",
 ) -> str:
     """Add a new module to the setup CSV and metadata.
@@ -64,7 +64,7 @@ def add_module(
         area: Module area in m²
         module_type: Module type string, e.g. MHP or OPV
         start_date: Outdoor deployment start date (YYYY-MM-DD)
-        site: Site key from pact_config.json (default SNL)
+        site: Site key — must be 'SNL' or 'SNL_fixed-tilt'
         notes: Optional notes for the setup CSV
     """
     with _capture_stdout() as buf:

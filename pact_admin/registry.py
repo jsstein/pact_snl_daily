@@ -173,8 +173,11 @@ def _lookup_site_key(cfg, pact_id):
 # Module management
 # ---------------------------------------------------------------------------
 
+_VALID_SITES = ('SNL', 'SNL_fixed-tilt')
+
+
 def add_module(cfg, pact_id, psel_id, area, module_type, start_date,
-               site='SNL', notes=''):
+               site, notes=''):
     """Add a new module to pact_modules (DB + CSV backup), create directories,
     and update metadata.
 
@@ -185,9 +188,13 @@ def add_module(cfg, pact_id, psel_id, area, module_type, start_date,
     area : float, module area in m²
     module_type : str, e.g. 'MHP'
     start_date : str, parseable date (YYYY-MM-DD or M/D/YY)
-    site : str, key from pact_config.json sites dict (default 'SNL')
+    site : str, must be 'SNL' or 'SNL_fixed-tilt'
     notes : str, optional
     """
+    if site not in _VALID_SITES:
+        raise ValueError(
+            f"Invalid site {site!r}. Must be one of: {', '.join(_VALID_SITES)}"
+        )
     get_site_cfg(cfg, site)
 
     df = read_modules(cfg)
