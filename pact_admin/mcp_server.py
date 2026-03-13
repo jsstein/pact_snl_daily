@@ -173,6 +173,7 @@ def update_module(
     site: str = None,
     start_date: str = None,
     notes: str = None,
+    active: str = None,
 ) -> str:
     """Update one or more fields on an existing module.
 
@@ -186,6 +187,7 @@ def update_module(
         site: New site — must be 'SNL' or 'SNL_fixed-tilt'
         start_date: New outdoor deployment start date (YYYY-MM-DD)
         notes: New notes
+        active: Active flag — 'Y' to reactivate, 'N' to deactivate
     """
     with _capture_stdout() as buf:
         registry.update_module(
@@ -197,6 +199,7 @@ def update_module(
             site=site,
             start_date=start_date,
             notes=notes,
+            active=active,
         )
     return buf.getvalue()
 

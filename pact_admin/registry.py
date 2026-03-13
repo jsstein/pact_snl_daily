@@ -552,7 +552,7 @@ def add_modules_bulk(cfg, pact_id_start, pact_id_end, psel_id_start,
 
 
 def update_module(cfg, pact_id, area=None, module_type=None, psel_id=None,
-                  site=None, start_date=None, notes=None):
+                  site=None, start_date=None, notes=None, active=None):
     """Update one or more fields on an existing module in pact_modules (DB + CSV backup).
 
     Only the fields explicitly passed (not None) are changed.
@@ -566,6 +566,7 @@ def update_module(cfg, pact_id, area=None, module_type=None, psel_id=None,
     site : str, optional — must be 'SNL' or 'SNL_fixed-tilt'
     start_date : str, optional — parseable date (YYYY-MM-DD)
     notes : str, optional
+    active : str, optional — 'Y' or 'N'
     """
     updates = {}
     if area        is not None: updates['area']        = float(area)
@@ -573,6 +574,10 @@ def update_module(cfg, pact_id, area=None, module_type=None, psel_id=None,
     if psel_id     is not None: updates['psel_id']     = int(psel_id)
     if notes       is not None: updates['notes']       = notes
     if start_date  is not None: updates['start_date']  = _parse_date(start_date)
+    if active      is not None:
+        if active not in ('Y', 'N'):
+            raise ValueError(f"Invalid active {active!r}. Must be 'Y' or 'N'.")
+        updates['active'] = active
     if site        is not None:
         if site not in _VALID_SITES:
             raise ValueError(
@@ -606,6 +611,7 @@ def update_module(cfg, pact_id, area=None, module_type=None, psel_id=None,
     col_map = {
         'area': 'Area', 'module_type': 'Type', 'psel_id': 'PSEL_id',
         'notes': 'Notes', 'site': 'Site', 'start_date': 'Start_date',
+        'active': 'Active',
     }
     mask = df['PACT_id'] == pact_id
     for db_col, value in updates.items():
