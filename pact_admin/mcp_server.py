@@ -296,7 +296,7 @@ def aws_sso_login() -> str:
 # ---- Ingestion tools -------------------------------------------------------
 
 @mcp.tool()
-async def update(ctx: Context, target: str, year: int, month: int, upload_s3: bool = True) -> str:
+async def update_mpp(ctx: Context, target: str, year: int, month: int, upload_s3: bool = True) -> str:
     """Fetch one month of DB data and regenerate charts for one module, a batch, or all active modules.
 
     Use this tool when asked to update, run, process, fetch, refresh, or ingest monthly
