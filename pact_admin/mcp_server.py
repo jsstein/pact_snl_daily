@@ -468,6 +468,90 @@ async def update_ivs(ctx: Context, target: str, year: int, month: int, upload_s3
 
 
 @mcp.tool()
+async def update_mpp_ivs(ctx: Context, target: str, year: int, month: int, upload_s3: bool = True) -> str:
+    """Fetch MPP data and process IV curves for one module, a batch, or all active modules.
+
+    Runs pact_update_mpp followed by pact_update_ivs for each module. Use this when
+    asked to do a full monthly update or to process both point-data and IV curves together.
+
+    Args:
+        target: Module ID (e.g. P-0042-04), batch prefix (e.g. P-0042), or 'all'
+        year: Four-digit year
+        month: Month number (1-12)
+        upload_s3: Whether to upload files to S3 (default True)
+    """
+    if target.count('-') >= 2:  # single module
+        with _capture_stdout() as buf:
+            ingest.update_module_month(cfg, pact_id=target, year=year, month=month, upload_s3=upload_s3)
+        mpp_out = buf.getvalue().strip()
+        with _capture_stdout() as buf:
+            ingest.update_ivs(cfg, pact_id=target, year=year, month=month, upload_s3=upload_s3)
+        iv_out = buf.getvalue().strip()
+        return '\n'.join(filter(None, [mpp_out, iv_out]))
+
+    if target == 'all':
+        modules_df = registry.read_modules(cfg)
+        active = modules_df[modules_df['Active'] == 'Y']
+        label = 'all active'
+    else:  # batch prefix
+        batch_prefix = target[:6]
+        modules_df = registry.read_modules(cfg)
+        active = modules_df[
+            (modules_df['Active'] == 'Y') &
+            (modules_df['PACT_id'].str.startswith(batch_prefix))
+        ]
+        label = f'batch {batch_prefix}'
+
+    if active.empty:
+        return f'No active modules found for {label}.'
+
+    total = len(active)
+    results = []
+    await ctx.info(f'Running MPP + IVs for {total} module(s) for {label} — {year}-{month:02d}')
+
+    with _capture_stdout() as mount_buf:
+        network_path = ingest._mount_iv_drive(cfg, verbose=True)
+    if mount_buf.getvalue().strip():
+        await ctx.info(mount_buf.getvalue().strip())
+
+    try:
+        for i, (_, row) in enumerate(active.iterrows()):
+            pact_id = row['PACT_id']
+            await ctx.info(f'[{i+1}/{total}] {pact_id} — MPP...')
+            with _capture_stdout() as buf:
+                try:
+                    ingest.update_module_month(cfg, pact_id=pact_id, year=year,
+                                               month=month, upload_s3=upload_s3)
+                    mpp_status = '✓ MPP'
+                except Exception as exc:
+                    mpp_status = f'✗ MPP: {exc}'
+            out = buf.getvalue().strip()
+            if out:
+                await ctx.info(out)
+
+            await ctx.info(f'[{i+1}/{total}] {pact_id} — IVs...')
+            with _capture_stdout() as buf:
+                try:
+                    ingest.update_ivs(cfg, pact_id=pact_id, year=year, month=month,
+                                      upload_s3=upload_s3, _network_path=network_path)
+                    iv_status = '✓ IVs'
+                except Exception as exc:
+                    iv_status = f'✗ IVs: {exc}'
+            out = buf.getvalue().strip()
+            if out:
+                await ctx.info(out)
+
+            results.append(f'{pact_id}: {mpp_status}, {iv_status}')
+    finally:
+        with _capture_stdout() as unmount_buf:
+            ingest._unmount_iv_drive(network_path, verbose=True)
+        if unmount_buf.getvalue().strip():
+            await ctx.info(unmount_buf.getvalue().strip())
+
+    return '\n'.join(results)
+
+
+@mcp.tool()
 def plot_ivs(pact_id: str, year: int, month: int, output_path: str = None, max_poa_variation_pct: float = 1.0) -> str:
     """Plot IV curves for a module/month from the monthly IV CSV in Box Sync.
 
